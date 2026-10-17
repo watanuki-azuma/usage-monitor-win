@@ -48,6 +48,13 @@ disagree, the code wins.** Do not change the C# app; you may build and run it to
   and prints `RESULT: <passed> passed, <failed> failed` and `APP: <path> (<bytes> bytes)` like the C#
   `build.ps1`. No absolute user paths committed (`rust/.cargo/config.toml` must not hard-code them;
   `.tools/` and `target/` are git-ignored).
+- Found in R0 (keep these):
+  - **No `slint-build` / `build.rs`.** Its build-time font discovery (DirectWrite) crashes the build script
+    with `STATUS_ACCESS_VIOLATION` under this toolchain. Load `.slint` files through the `slint!` macro
+    (`slint::slint! { export { X } from "ui/x.slint"; }`), as `rust/src/main.rs` does.
+  - **Tests run with `--release`.** Non-LTO (debug, even opt-level 1) binaries that link Slint crash at
+    start-up with `STATUS_ACCESS_VIOLATION`; release (LTO) binaries work. `build.ps1` already runs
+    `cargo test --release`.
 - Because there is no C compiler, **no crate may build C/C++ code** (`cc`, `ring`, `aws-lc-sys`, `skia`,
   `freetype-sys`, `openssl-sys` ...). Check `cargo tree` when adding a dependency.
 
