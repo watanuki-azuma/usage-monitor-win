@@ -47,3 +47,13 @@
   rounds half away from zero on the 15-digit form; only differs for values like `x.xx5`.
 - Fake HTTP `HttpResult` of tests carries no `json`; the helpers (`get_json` ...) parse the text, like C#.
 - `wincred::WinCredReader` is compiled but not exercised by tests (as in C#).
+
+## Review (Codex Sol xhigh, 2026-10-18) — not yet verified or fixed
+
+- **Credential replacements lose Windows permissions** 窶・[util.rs:232](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/util.rs:232), also `grok.rs:741`. If a credential file has a restrictive explicit ACL but its directory grants broader access, refreshing replaces it with the temporary file窶冱 broader permissions. C# uses `File.Replace` (`ClaudeAdapter.cs:260`, `GrokAdapter.cs:728`), which preserves the destination窶冱 DACL; Rust uses `rename`. Fix both replacement paths to preserve the original security metadata, using [ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
+
+- **Windows proxy settings are ignored** 窶・[http.rs:76](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/http.rs:76). With an Internet Options proxy configured and no proxy environment variables, C# requests use that proxy; Rust connects directly because ureq窶冱 `win-system-proxy` feature is disabled. On a network requiring the proxy, every provider fails. Fix by configuring ureq from Windows proxy settings; enabling its existing feature covers a simple static proxy. [C# proxy behavior](https://learn.microsoft.com/en-us/dotnet/api/system.net.httpwebrequest.proxy?view=netframework-4.8.1).
+
+- **Previously readable credential files become logged out** 窶・[util.rs:208](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/util.rs:208). A valid Codex `auth.json` saved as UTF-16LE with a BOM works in C# (`CodexAdapter.cs:224`), but Rust decodes it as UTF-8, fails JSON parsing, and returns `logged_out`. C#窶冱 `File.ReadAllText` [detects UTF-16 and UTF-32 BOMs](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.readalltext?view=netframework-4.8.1). Fix `read_text` to recognize those encodings.
+
+- **Prepaid-credit labels round differently** 窶・[grok.rs:85](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/grok.rs:85). For `{"prepaidBalance":{"val":1.125}}`, C# (`GrokAdapter.cs:84`) displays `Credits $1.13`; Rust displays `Credits $1.12` because fixed-precision formatting uses [half-to-even rounding](https://doc.rust-lang.org/std/fmt/). Fix by matching .NET Framework窶冱 numeric formatting before constructing the label.
