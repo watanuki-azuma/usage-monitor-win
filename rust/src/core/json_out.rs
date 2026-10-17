@@ -156,6 +156,13 @@ impl JsonWriter {
         self.after_value();
     }
 
+    /// An unsigned integer that does not fit `number()`.
+    pub fn unsigned(&mut self, value: u64) {
+        self.before_value();
+        let _ = write!(self.sb, "{}", value);
+        self.after_value();
+    }
+
     /// JavaScript escaping: control characters escaped, `& < > /` and non-ASCII as-is.
     fn escape(&mut self, text: &str) {
         for c in text.chars() {
@@ -172,6 +179,47 @@ impl JsonWriter {
                 }
                 c => self.sb.push(c),
             }
+        }
+    }
+}
+
+/// `JSON.stringify(value, null, 2)` for any `serde_json::Value` (port of `AdapterUtil.IndentedJson`):
+/// used to rewrite credential files without dropping the keys we do not understand.
+pub fn indented_json(value: &serde_json::Value) -> String {
+    let mut w = JsonWriter::new();
+    write_value(&mut w, value);
+    w.into_string()
+}
+
+fn write_value(w: &mut JsonWriter, value: &serde_json::Value) {
+    use serde_json::Value;
+    match value {
+        Value::Null => w.string(None),
+        Value::Bool(b) => w.bool(*b),
+        Value::String(s) => w.string(Some(s)),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                w.number(i);
+            } else if let Some(u) = n.as_u64() {
+                w.unsigned(u);
+            } else {
+                w.double(n.as_f64());
+            }
+        }
+        Value::Array(items) => {
+            w.begin_array();
+            for item in items {
+                write_value(w, item);
+            }
+            w.end_array();
+        }
+        Value::Object(map) => {
+            w.begin_object();
+            for (k, v) in map {
+                w.key(k);
+                write_value(w, v);
+            }
+            w.end_object();
         }
     }
 }
