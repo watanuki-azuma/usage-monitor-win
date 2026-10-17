@@ -41,3 +41,17 @@
     for numbers without exponent (Node style) and every reader (Python json, serde) accepts both;
   - `USERPROFILE` unset: C# falls back to the known folder (`GetFolderPath`); Rust uses `"."`.
     Not fixed in `core` (no Win32 there); `main.rs` can pass the known folder in R4 if needed.
+
+## Handoff (2026-10-18, paused for quota)
+
+State of the `slint` branch: R0, R1 (core, 27 tests), R3 (engine, 27 tests incl. 2 added after review)
+merged and reviewed. `build.ps1`: RESULT 54 passed, 0 failed.
+
+- R2 (adapters, 66 tests, 93 total with core) is done by the worker but **not merged**: branch
+  `slint-r2-wip` (based on R1, without R3). Its Codex Sol xhigh review result is in `rust/notes-R2.md`
+  on that branch once recorded; fix the confirmed findings, then merge into `slint`
+  (no file overlap with R3 except `core/json_out.rs` additions; R3 changed `core/contracts.rs`
+  `AlertState.fired` to `FiredMap`).
+- Next: R4 (windows integration + classic skin + render-test). Routing plan: tricky-impl -> Codex Sol
+  high (its workspace-write sandbox can run `build.ps1`, checked on 2026-10-18), review Sol xhigh.
+- Worker notes per milestone: `notes-R3.md` (and `notes-R2.md` on the R2 branch).
