@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-10-11T12:00:00.000Z",
+  "poll_interval_secs": 60,
+  "providers": [
+    {
+      "id": "claude",
+      "display_name": "Claude Code",
+      "status": { "state": "ok" },
+      "plan": "Max 5x",
+      "windows": [
+        { "kind": "five_hour", "label": "5h", "used_pct": 98, "remaining_pct": 2, "resets_at": "2099-10-11T15:19:00.000Z" },
+        { "kind": "weekly", "label": "Weekly", "used_pct": 16, "remaining_pct": 84, "resets_at": "2099-10-17T16:59:00.000Z" },
+        { "kind": "weekly_scoped", "label": "Opus weekly", "used_pct": 41.5, "remaining_pct": 58.5, "resets_at": "2099-10-17T16:59:00.000Z" }
+      ],
+      "fetched_at": "2026-10-11T11:59:00.000Z",
+      "source": "api"
+    },
+    {
+      "id": "codex",
+      "display_name": "Codex",
+      "status": { "state": "stale", "age_secs": 120, "reason": "rate_limited", "retry_at": "2099-10-11T12:30:00.000Z" },
+      "plan": "Plus",
+      "windows": [
+        { "kind": "five_hour", "label": "5h", "used_pct": 35, "remaining_pct": 65, "resets_at": "2099-10-11T14:00:00.000Z" },
+        { "kind": "weekly", "label": "Weekly", "used_pct": 16, "remaining_pct": 84, "resets_at": "2099-10-18T03:57:00.000Z" },
+        { "kind": "credits", "label": "Reset credits ×1", "used_pct": null, "remaining_pct": null, "resets_at": null }
+      ],
+      "fetched_at": "2026-10-11T11:58:00.000Z",
+      "source": "cache"
+    },
+    {
+      "id": "gemini",
+      "display_name": "Gemini",
+      "status": { "state": "ok" },
+      "plan": "Google AI Pro",
+      "windows": [
+        { "kind": "five_hour", "label": "5h", "used_pct": 0, "remaining_pct": 100, "resets_at": "2099-10-11T14:00:00.000Z" },
+        { "kind": "weekly", "label": "Weekly", "used_pct": 0, "remaining_pct": 100, "resets_at": "2099-10-18T00:00:00.000Z" }
+      ],
+      "fetched_at": "2026-10-11T11:59:30.000Z",
+      "source": "api"
+    },
+    {
+      "id": "grok",
+      "display_name": "Grok Build",
+      "status": { "state": "logged_out", "hint": "Run: grok login" },
+      "plan": null,
+      "windows": [],
+      "fetched_at": "2026-10-11T11:59:30.000Z",
+      "source": "none"
+    }
+  ]
+}

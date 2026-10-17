@@ -1,0 +1,13 @@
+# build output
+/out/
+*.pdb
+# render-test / scratch output
+/classic/
+/rpg/
+/fluent/
+/terminal/
+# internal working material (orchestration notes, extracted upstream JS)
+/reference/
+/tasks/
+/eval/
+/tools/
