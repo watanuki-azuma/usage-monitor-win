@@ -183,7 +183,50 @@ pub struct AlertEntry {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AlertState {
-    pub fired: HashMap<String, AlertEntry>,
+    pub fired: FiredMap,
+}
+
+/// Insertion-ordered map for `alert-state.json` (the C# Dictionary keeps insertion order, so the
+/// file keeps its key order). Linear lookups: the map holds a handful of entries.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FiredMap {
+    items: Vec<(String, AlertEntry)>,
+}
+
+impl FiredMap {
+    pub fn new() -> FiredMap {
+        FiredMap::default()
+    }
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.items.iter().any(|(k, _)| k == key)
+    }
+    pub fn get(&self, key: &str) -> Option<&AlertEntry> {
+        self.items.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+    /// Replaces in place (position kept) or appends.
+    pub fn insert(&mut self, key: String, value: AlertEntry) {
+        match self.items.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = value,
+            None => self.items.push((key, value)),
+        }
+    }
+    /// Keeps the order of the remaining entries.
+    pub fn remove(&mut self, key: &str) -> Option<AlertEntry> {
+        let pos = self.items.iter().position(|(k, _)| k == key)?;
+        Some(self.items.remove(pos).1)
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &AlertEntry)> {
+        self.items.iter().map(|(k, v)| (k, v))
+    }
+    pub fn retain<F: FnMut(&str, &AlertEntry) -> bool>(&mut self, mut f: F) {
+        self.items.retain(|(k, v)| f(k, v));
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

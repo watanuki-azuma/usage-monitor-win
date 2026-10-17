@@ -11,3 +11,5 @@
 /tasks/
 /eval/
 /tools/
+# agent worktrees
+/.claude/
