@@ -1,0 +1,615 @@
+import { ChipData, CardData, LineData, HeaderButtonData } from "../common.slint";
+
+component FluentBadge inherits Rectangle {
+    in property <string> initial;
+    in property <color> accent-light;
+    in property <color> accent-dark;
+    in property <color> ink: #ffffff;
+    in property <length> size: 14px;
+    in property <length> radius: 4.5px;
+    in property <length> font-px: 9px;
+    width: root.size;
+    height: root.size;
+    border-radius: root.radius;
+    background: root.accent-dark;
+    border-width: 1px;
+    border-color: #ffffff50;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height / 2 + 1px;
+        border-radius: root.radius - 1px;
+        background: root.accent-light;
+    }
+    Rectangle {
+        x: 3px;
+        y: 1px;
+        width: parent.width - 6px;
+        height: 1px;
+        background: #ffffff5a;
+    }
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.initial;
+        color: root.ink;
+        font-family: "Segoe UI";
+        font-size: root.font-px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component FluentHeaderButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    callback context-menu;
+    height: 24px;
+    border-radius: 6px;
+    background: root.active
+        ? #0067bd
+        : touch.pressed
+            ? #1c1c20
+            : touch.has-hover
+                ? #34343a
+                : #28282d;
+    border-width: 1px;
+    border-color: root.active ? #0078d4 : touch.pressed ? #ffffff19 : touch.has-hover ? #ffffff3c : #ffffff2a;
+    if !touch.pressed: Rectangle {
+        x: 3px;
+        y: 1px;
+        width: parent.width - 6px;
+        height: 1px;
+        background: root.active ? #ffffff4b : touch.has-hover ? #ffffff2d : #ffffff1c;
+    }
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.active ? #ffffff : touch.pressed ? #a0a4ac : touch.has-hover ? #ffffff : #e0e2e6;
+        font-family: "Segoe UI";
+        font-size: 11px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.context-menu();
+            }
+        }
+    }
+}
+
+export component FluentChips inherits Rectangle {
+    in property <[ChipData]> chips;
+    background: #141418;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 8px;
+        background: #141418;
+        border-width: 1px;
+        border-color: #ffffff2a;
+        Rectangle {
+            x: 6px;
+            y: 1px;
+            width: parent.width - 12px;
+            height: 1px;
+            background: #ffffff28;
+        }
+        for chip in root.chips: Rectangle {
+            x: chip.px * 1px;
+            y: 4px;
+            width: chip.pw * 1px;
+            height: 22px;
+            border-radius: 6px;
+            background: #202026;
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: 10px;
+                border-radius: 5px;
+                background: #28282f;
+            }
+            Rectangle {
+                x: 4px;
+                y: 1px;
+                width: parent.width - 8px;
+                height: 1px;
+                background: #ffffff24;
+            }
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                border-radius: 6px;
+                background: chip.glow;
+                border-width: chip.stale ? 0px : 1px;
+                border-color: chip.outline;
+            }
+            if chip.stale: Path {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                stroke: chip.outline;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: chip.pw;
+                viewbox-height: 22;
+                fill: transparent;
+                stroke-width: 1px;
+                commands: chip.dash-path;
+            }
+            FluentBadge {
+                x: 8px;
+                y: 4px;
+                size: 14px;
+                radius: 4.5px;
+                font-px: 9px;
+                initial: chip.initial;
+                accent-light: chip.accent-light;
+                accent-dark: chip.accent-dark;
+                ink: chip.badge-ink;
+            }
+            Text {
+                x: 28px;
+                y: 0px;
+                width: parent.width - 29px;
+                height: parent.height;
+                text: chip.text;
+                color: chip.ink;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component FluentFlyout inherits Rectangle {
+    in property <[CardData]> cards;
+    in property <[HeaderButtonData]> buttons;
+    in property <bool> docked;
+    in property <bool> pinned;
+    in property <int> interval: 5;
+    callback action(string);
+    callback drag(float, float, int);
+    background: #141418;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 8px;
+        background: #16161a;
+        border-width: 1px;
+        border-color: #ffffff2a;
+        Rectangle {
+            x: 8px;
+            y: 1px;
+            width: parent.width - 16px;
+            height: 1px;
+            background: #ffffff37;
+        }
+    }
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.action("menu");
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 0);
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 2);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 1);
+            }
+        }
+    }
+    // Windows 11 Fluent App Tile Icon
+    Rectangle {
+        x: 15px;
+        y: 19px;
+        width: 22px;
+        height: 22px;
+        border-radius: 5.5px;
+        background: #0078d4;
+        border-width: 1px;
+        border-color: #ffffff46;
+        Rectangle {
+            x: 1px;
+            y: 9px;
+            width: 20px;
+            height: 12px;
+            border-radius: 4.5px;
+            background: #00c7fd66;
+        }
+        Rectangle {
+            x: 3px;
+            y: 1px;
+            width: 16px;
+            height: 1px;
+            background: #ffffff6e;
+        }
+        Rectangle {
+            x: 5px;
+            y: 13px;
+            width: 2px;
+            height: 5px;
+            border-radius: 1px;
+            background: #ffffff;
+        }
+        Rectangle {
+            x: 10px;
+            y: 9px;
+            width: 2px;
+            height: 9px;
+            border-radius: 1px;
+            background: #ffffff;
+        }
+        Rectangle {
+            x: 15px;
+            y: 5px;
+            width: 2px;
+            height: 13px;
+            border-radius: 1px;
+            background: #ffffff;
+        }
+    }
+    Text {
+        x: 47px;
+        y: 14px;
+        height: 32px;
+        text: "Usage Monitor";
+        color: #ffffff;
+        font-family: "Segoe UI";
+        font-size: 13px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+    for btn in root.buttons: FluentHeaderButton {
+        x: btn.px * 1px;
+        y: btn.py * 1px;
+        width: btn.pw * 1px;
+        height: btn.ph * 1px;
+        label: btn.label;
+        active: btn.active;
+        clicked => { root.action(btn.action); }
+        context-menu => { root.action("menu"); }
+    }
+    for card in root.cards: Rectangle {
+        x: card.px * 1px;
+        y: card.py * 1px;
+        width: card.pw * 1px;
+        height: card.ph * 1px;
+        border-radius: 8px;
+        background: #1e1e24;
+        border-width: 1px;
+        border-color: #ffffff26;
+        Rectangle {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+            background: @linear-gradient(180deg, card.glow-top 0%, card.glow-mid 40%, card.glow-end 100%);
+        }
+        Rectangle {
+            x: 8px;
+            y: 1px;
+            width: parent.width - 16px;
+            height: 1px;
+            background: #ffffff30;
+        }
+        FluentBadge {
+            x: 14px;
+            y: 13px;
+            size: 20px;
+            radius: 5.5px;
+            font-px: 10px;
+            initial: card.initial;
+            accent-light: card.accent-light;
+            accent-dark: card.accent-dark;
+            ink: card.badge-ink;
+        }
+        Text {
+            x: 41px;
+            y: 12px;
+            width: 165px;
+            height: 22px;
+            text: card.name;
+            color: #f5f6f8;
+            font-family: "Segoe UI";
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if card.plan != "": Rectangle {
+            x: (card.pw - 14 - card.plan-w) * 1px;
+            y: 13.5px;
+            width: card.plan-w * 1px;
+            height: 19px;
+            border-radius: 4.5px;
+            background: #1d1d23;
+            border-width: 1px;
+            border-color: #ffffff24;
+            Rectangle {
+                x: 3px;
+                y: 1px;
+                width: parent.width - 6px;
+                height: 1px;
+                background: #ffffff1c;
+            }
+            Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: card.plan;
+                color: #d7dce6;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        for line in card.lines: Rectangle {
+            x: 14px;
+            y: line.py * 1px;
+            width: 302px;
+            height: line.ph * 1px;
+            if line.kind == 0: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                Text {
+                    x: 0px;
+                    y: 0px;
+                    width: card.label-width * 1px;
+                    height: parent.height;
+                    text: line.label;
+                    color: line.label-color;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {
+                    x: line.meter-x * 1px;
+                    y: 6px;
+                    width: line.meter-w * 1px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: #101014;
+                    border-width: 1px;
+                    border-color: #ffffff1c;
+                    if line.fill-w > 0: Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: line.fill-w * 1px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: line.bar-bottom;
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: line.bar-top;
+                        }
+                        if line.fill-w > 6: Rectangle {
+                            x: 3px;
+                            y: 1px;
+                            width: parent.width - 6px;
+                            height: 1px;
+                            background: #ffffff78;
+                        }
+                    }
+                }
+                Text {
+                    x: line.pct-x * 1px;
+                    y: 0px;
+                    width: line.pct-width * 1px;
+                    height: parent.height;
+                    text: line.pct;
+                    color: line.pct-color;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: line.eta-x * 1px;
+                    y: 0px;
+                    width: card.eta-width * 1px;
+                    height: parent.height;
+                    text: line.eta == "now" ? "● now" : line.eta;
+                    color: line.eta == "now" ? #4ade80 : #9aa0aa;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 4: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 22px;
+                border-radius: 5px;
+                background: #f59e0b20;
+                border-width: 1px;
+                border-color: #f59e0b6e;
+                Text {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    text: "● " + line.text;
+                    color: #fcd34d;
+                    font-family: "Segoe UI";
+                    font-size: 10px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 1: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: line.tag-w * 1px;
+                height: 20px;
+                border-radius: 4px;
+                background: #ffffff14;
+                border-width: 1px;
+                border-color: #ffffff26;
+                Rectangle {
+                    x: 3px;
+                    y: 1px;
+                    width: parent.width - 6px;
+                    height: 1px;
+                    background: #ffffff1e;
+                }
+                Path {
+                    x: 8px;
+                    y: 7px;
+                    width: 6px;
+                    height: 6px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 6;
+                    viewbox-height: 6;
+                    fill: #dce2e6;
+                    commands: "M3 0 L6 3 L3 6 L0 3 Z";
+                }
+                Text {
+                    x: 18px;
+                    y: 0px;
+                    width: parent.width - 24px;
+                    height: parent.height;
+                    text: line.text;
+                    color: #dce2e6;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 2: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: #ffffff12;
+                border-width: 1px;
+                border-color: #ffffff24;
+                Rectangle {
+                    x: 3px;
+                    y: 1px;
+                    width: parent.width - 6px;
+                    height: 1px;
+                    background: #ffffff1a;
+                }
+                Text {
+                    x: 10px;
+                    y: 0px;
+                    width: 14px;
+                    height: parent.height;
+                    text: "> ";
+                    color: #38bdf8;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: 22px;
+                    y: 0px;
+                    width: 240px;
+                    height: parent.height;
+                    text: line.text;
+                    color: #dce2eb;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {
+                    x: 268px;
+                    y: 4px;
+                    width: 28px;
+                    height: 16px;
+                    border-radius: 3.5px;
+                    background: #ffffff18;
+                    border-width: 1px;
+                    border-color: #ffffff24;
+                    Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: "CLI";
+                        color: #94a3b8;
+                        font-family: "Segoe UI";
+                        font-size: 9px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if line.kind == 3: Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: line.text;
+                color: #9aa0aa;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        TouchArea {
+            clicked => { root.action("usage:" + card.id); }
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                    root.action("menu");
+                }
+            }
+        }
+    }
+    if root.docked: Rectangle {
+        x: 12px;
+        y: root.height - 2px;
+        width: root.width - 24px;
+        height: 2px;
+        background: #0078d4;
+    }
+}

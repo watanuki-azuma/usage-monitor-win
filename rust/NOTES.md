@@ -114,3 +114,21 @@ merged and reviewed.
 - Single instance: launching the Rust exe while the C# app runs exits in 150 ms (shared mutex/event).
 - Not yet checked by hand: tray menu items, docking on the vertical taskbar, flyout focus/Esc, toasts,
   Explorer restart, autostart (R6 checklist).
+
+## R5 (2026-10-18)
+
+- Added `rpg`, `fluent`, and `terminal` Slint skins (`ui/rpg/app.slint`, `ui/fluent/app.slint`,
+  `ui/terminal/app.slint`) routed from the single `Chips` and `Flyout` windows in `ui/classic/app.slint`
+  via `in property <string> skin` on `WindowBase` (`ui/common.slint`).
+- `ui::chip_model::rpg_for_provider` computes remaining `NN/100` while preserving `color_class` and
+  `stale` from used%. Ported `test_rpg_chips_show_remaining_while_colour_follows_used` from `M5_Skins.cs`
+  and updated `test_registry_creates_every_skin_and_unknown_is_classic` and
+  `test_each_skin_measures_and_paints_chips_and_flyout`.
+- Live skin switching (`skin:<id>` in `ui::app_controller`) updates `config.skin`, switches the Slint
+  `skin` property on the existing `Chips` and `Flyout` windows, updates window sizes/placement/rounding
+  while keeping visibility and docking state intact, and persists `config.json`.
+- `build.ps1`: `RESULT: 140 passed, 0 failed`; `APP: target\release\UsageMonitor.exe (9,956,864 bytes)`.
+- `--render-test` for `classic`, `rpg`, `fluent`, and `terminal` all exit 0 and match the C# reference
+  renders in `rust/reference-renders/<skin>/` in dimensions, layout, colours, fonts, and texts (details
+  in `notes-R5.md`).
+
