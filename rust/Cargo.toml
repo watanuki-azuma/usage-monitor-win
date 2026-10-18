@@ -46,3 +46,4 @@ strip = true
 # GNU toolchain. Reuse the conventional import library already supplied by windows-sys 0.59.
 [patch.crates-io]
 windows-link = { path = "vendor/windows-link" }
+i-slint-renderer-software = { path = "vendor/i-slint-renderer-software" }

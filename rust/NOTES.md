@@ -171,3 +171,18 @@ title bar with no content. Causes and fixes (`src/win/window_style.rs`):
   two timers so Slint repaints everything.
 
 Checked with screenshots: chips with the tray menu open, flyout opened twice, RPG skin live.
+
+## R6 follow-up: flyout flash on tray click, text quality
+
+- The flyout flashed (shown, hidden, shown) on every tray click: `tool()` re-applied the tool-window
+  styles with a hide/show each time, because winit rewrites both styles on every show. Now the windows
+  are created with winit `skip_taskbar` (Slint `unstable-winit-030` attributes hook), the subclass
+  keeps our styles in `WM_STYLECHANGING`, the HWND is kept across shows, and `tool()` no longer
+  hides/shows (so the 1 px repaint nudge is gone too). Windows get their position before the first
+  show, so the first open no longer appears at the default spot and jumps.
+  Checked by sampling the flyout every few ms after a tray click (old: visible -> hidden -> visible;
+  new: one transition), screenshots, focus and Esc.
+- Text: `vendor/i-slint-renderer-software` (1.18.1, `[patch.crates-io]`) rasterizes glyphs with
+  swash hinting and lifts glyph coverage with a gamma of 1/1.35 (glyph alpha maps only; applying it in
+  the shared alpha-map blend also hardened bar and icon edges). Still grayscale: the software renderer
+  has no ClearType. Re-apply both edits (marked `usage-monitor patch`) when upgrading Slint.
