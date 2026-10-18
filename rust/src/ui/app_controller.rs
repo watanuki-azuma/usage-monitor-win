@@ -1,177 +1,461 @@
 //! UI state lives on the event loop; all filesystem, credential, HTTP and registry work is on worker.
-use std::{cell::RefCell,rc::Rc,path::PathBuf,sync::{Arc,mpsc},time::{Duration,Instant}};
+use super::{
+    render_test,
+    taskbar_math::{self as math, RectI},
+    Chips, Flyout,
+};
+use crate::{
+    adapters::{self, http::RealHttp, wincred::WinCredReader},
+    core::{app_config::AppConfig, contracts::*, models, paths::Paths},
+    engine::{
+        alert_engine,
+        poll_engine::PollEngine,
+        stores::{FileAlertStore, FileSnapshotStore},
+        usage_log::UsageLog,
+    },
+    win::{self, menu, single_instance::SingleInstance, taskbar, tray::Tray, window_style},
+};
 use chrono::Utc;
 use slint::ComponentHandle;
-use crate::{core::{app_config::AppConfig,contracts::*,models,paths::Paths},adapters::{self,http::RealHttp,wincred::WinCredReader},engine::{poll_engine::PollEngine,alert_engine,stores::{FileSnapshotStore,FileAlertStore},usage_log::UsageLog},win::{self,taskbar,window_style,menu,tray::Tray,single_instance::SingleInstance}};
-use super::{Chips,Flyout,render_test,taskbar_math::{self as math,RectI}};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    sync::{mpsc, Arc},
+    time::{Duration, Instant},
+};
 
-enum Work { Start, Config(AppConfig), Autostart(AppConfig), Snapshot(Arc<Snapshot>,bool), Refresh, Stop }
-fn forward_poll(tx:&Option<mpsc::Sender<Work>>,command:Work) {
-    if let Some(tx)=tx {let _=tx.send(command);}
+enum Work {
+    Start,
+    Config(AppConfig),
+    Autostart(AppConfig),
+    Snapshot(Arc<Snapshot>, bool),
+    Refresh,
+    Stop,
+}
+fn forward_poll(tx: &Option<mpsc::Sender<Work>>, command: Work) {
+    if let Some(tx) = tx {
+        let _ = tx.send(command);
+    }
 }
 // Consume a whole pending batch before polling, like C#'s single wakePoll signal.
-fn merge_poll_commands(commands:impl Iterator<Item=Work>,config:&mut AppConfig,due:&mut Instant)->bool {
+fn merge_poll_commands(
+    commands: impl Iterator<Item = Work>,
+    config: &mut AppConfig,
+    due: &mut Instant,
+) -> bool {
     for command in commands {
         match command {
-            Work::Config(c)=>{if c.poll_interval_secs!=config.poll_interval_secs {*due=Instant::now();}*config=c;},
-            Work::Refresh=>*due=Instant::now(),
-            Work::Stop=>return false,
-            _=>{},
+            Work::Config(c) => {
+                if c.poll_interval_secs != config.poll_interval_secs {
+                    *due = Instant::now();
+                }
+                *config = c;
+            }
+            Work::Refresh => *due = Instant::now(),
+            Work::Stop => return false,
+            _ => {}
         }
     }
     true
 }
-fn interval_commands(config:&mut AppConfig,selection:&str)->[Work;2] {
-    config.poll_interval_secs=selection.parse::<i32>().ok().filter(|s|crate::core::app_config::ALLOWED_INTERVALS.contains(s)).unwrap_or(5);
-    [Work::Config(config.clone()),Work::Refresh]
+fn interval_commands(config: &mut AppConfig, selection: &str) -> [Work; 2] {
+    config.poll_interval_secs = selection
+        .parse::<i32>()
+        .ok()
+        .filter(|s| crate::core::app_config::ALLOWED_INTERVALS.contains(s))
+        .unwrap_or(5);
+    [Work::Config(config.clone()), Work::Refresh]
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn refresh_burst_during_poll_coalesces_and_uses_latest_config() {
-        let (tx,rx)=mpsc::channel();let mut config=AppConfig::default();
-        let mut next=config.clone();next.poll_interval_secs=15;
-        tx.send(Work::Refresh).unwrap();tx.send(Work::Config(next)).unwrap();
-        for _ in 0..8 {tx.send(Work::Refresh).unwrap();}
-        let mut due=Instant::now()+Duration::from_secs(60);
-        assert!(merge_poll_commands(rx.try_iter(),&mut config,&mut due));
-        assert!(due<=Instant::now());assert_eq!(config.poll_interval_secs,15);
+    #[test]
+    fn refresh_burst_during_poll_coalesces_and_uses_latest_config() {
+        let (tx, rx) = mpsc::channel();
+        let mut config = AppConfig::default();
+        let mut next = config.clone();
+        next.poll_interval_secs = 15;
+        tx.send(Work::Refresh).unwrap();
+        tx.send(Work::Config(next)).unwrap();
+        for _ in 0..8 {
+            tx.send(Work::Refresh).unwrap();
+        }
+        let mut due = Instant::now() + Duration::from_secs(60);
+        assert!(merge_poll_commands(rx.try_iter(), &mut config, &mut due));
+        assert!(due <= Instant::now());
+        assert_eq!(config.poll_interval_secs, 15);
         // The follow-up poll finished; no queued click should trigger another poll.
-        due=Instant::now()+Duration::from_secs(15);let scheduled=due;
-        assert!(merge_poll_commands(rx.try_iter(),&mut config,&mut due));assert_eq!(due,scheduled);
+        due = Instant::now() + Duration::from_secs(15);
+        let scheduled = due;
+        assert!(merge_poll_commands(rx.try_iter(), &mut config, &mut due));
+        assert_eq!(due, scheduled);
     }
-    #[test] fn stop_preempts_a_pending_refresh() {
-        let mut config=AppConfig::default();let mut due=Instant::now();
-        assert!(!merge_poll_commands([Work::Refresh,Work::Stop].into_iter(),&mut config,&mut due));
+    #[test]
+    fn stop_preempts_a_pending_refresh() {
+        let mut config = AppConfig::default();
+        let mut due = Instant::now();
+        assert!(!merge_poll_commands(
+            [Work::Refresh, Work::Stop].into_iter(),
+            &mut config,
+            &mut due
+        ));
     }
-    #[test] fn every_interval_selection_saves_then_refreshes_even_if_unchanged() {
-        let mut config=AppConfig::default();
-        for selection in ["5","5","15","15","invalid"] {
-            let expected=if selection=="15" {15}else{5};
-            let [save,refresh]=interval_commands(&mut config,selection);
+    #[test]
+    fn every_interval_selection_saves_then_refreshes_even_if_unchanged() {
+        let mut config = AppConfig::default();
+        for selection in ["5", "5", "15", "15", "invalid"] {
+            let expected = if selection == "15" { 15 } else { 5 };
+            let [save, refresh] = interval_commands(&mut config, selection);
             assert!(matches!(save,Work::Config(c) if c.poll_interval_secs==expected));
-            assert!(matches!(refresh,Work::Refresh));assert_eq!(config.poll_interval_secs,expected);
+            assert!(matches!(refresh, Work::Refresh));
+            assert_eq!(config.poll_interval_secs, expected);
         }
     }
-    #[test] fn no_poll_forwarding_needs_no_receiver() {
-        for _ in 0..100 {forward_poll(&None,Work::Refresh);forward_poll(&None,Work::Config(AppConfig::default()));}
-        let (tx,rx)=mpsc::channel();forward_poll(&Some(tx),Work::Refresh);
-        assert!(matches!(rx.try_recv(),Ok(Work::Refresh)));
+    #[test]
+    fn no_poll_forwarding_needs_no_receiver() {
+        for _ in 0..100 {
+            forward_poll(&None, Work::Refresh);
+            forward_poll(&None, Work::Config(AppConfig::default()));
+        }
+        let (tx, rx) = mpsc::channel();
+        forward_poll(&Some(tx), Work::Refresh);
+        assert!(matches!(rx.try_recv(), Ok(Work::Refresh)));
     }
 }
 thread_local! { static APP:RefCell<Option<Rc<RefCell<AppController>>>>=RefCell::new(None); }
 pub struct AppController {
-    config:AppConfig,current:Option<Snapshot>,chips:Chips,flyout:Flyout,tray:Option<Tray>,single:SingleInstance,
-    worker:mpsc::Sender<Work>,tick:slint::Timer,setup:slint::Timer,
-    chips_hwnd:windows_sys::Win32::Foundation::HWND,flyout_hwnd:windows_sys::Win32::Foundation::HWND,
-    chips_rect:RectI,last_geometry:Option<(RectI,RectI)>,menu_open:bool,
-    drag_start:Option<(i32,i32,RectI,bool)>,drag_moved:bool,
-    flyout_shown:Instant,
+    config: AppConfig,
+    current: Option<Snapshot>,
+    chips: Chips,
+    flyout: Flyout,
+    tray: Option<Tray>,
+    single: SingleInstance,
+    worker: mpsc::Sender<Work>,
+    tick: slint::Timer,
+    setup: slint::Timer,
+    chips_hwnd: windows_sys::Win32::Foundation::HWND,
+    flyout_hwnd: windows_sys::Win32::Foundation::HWND,
+    chips_rect: RectI,
+    last_geometry: Option<(RectI, RectI)>,
+    menu_open: bool,
+    drag_start: Option<(i32, i32, RectI, bool)>,
+    drag_moved: bool,
+    flyout_shown: Instant,
 }
-fn post(f:impl FnOnce()+Send+'static) {let _=slint::invoke_from_event_loop(f);}
-fn with_app(f:impl FnOnce(&mut AppController)) {let app=APP.with(|a|a.borrow().clone());if let Some(app)=app {f(&mut app.borrow_mut());}}
-pub fn dispatch(action:String) {
-    if action=="menu" || action=="interval-menu" {
-        let info=APP.with(|a|a.borrow().as_ref().and_then(|a|{
-            let mut a=a.borrow_mut();if a.menu_open{return None;}a.menu_open=true;
-            let visible=a.flyout.window().is_visible();
-            let hwnd=if visible&&!a.flyout_hwnd.is_null(){a.flyout_hwnd}else if !a.config.chips_hidden&&!a.chips_hwnd.is_null(){a.chips_hwnd}else{a.tray.as_ref().unwrap().menu_owner()};
-            Some((hwnd,a.config.clone(),visible))
-        }));
-        if let Some((hwnd,c,v))=info {
-            let next=menu::show(hwnd,&c,v,action=="interval-menu");
-            with_app(|a|{a.menu_open=false;a.flyout_shown=Instant::now();});
-            if let Some(next)=next {dispatch(next);}
+fn post(f: impl FnOnce() + Send + 'static) {
+    let _ = slint::invoke_from_event_loop(f);
+}
+fn with_app(f: impl FnOnce(&mut AppController)) {
+    let app = APP.with(|a| a.borrow().clone());
+    if let Some(app) = app {
+        f(&mut app.borrow_mut());
+    }
+}
+pub fn dispatch(action: String) {
+    if action == "menu" || action == "interval-menu" {
+        let info = APP.with(|a| {
+            a.borrow().as_ref().and_then(|a| {
+                let mut a = a.borrow_mut();
+                if a.menu_open {
+                    return None;
+                }
+                a.menu_open = true;
+                let visible = a.flyout.window().is_visible();
+                let hwnd = if visible && !a.flyout_hwnd.is_null() {
+                    a.flyout_hwnd
+                } else if !a.config.chips_hidden && !a.chips_hwnd.is_null() {
+                    a.chips_hwnd
+                } else {
+                    a.tray.as_ref().unwrap().menu_owner()
+                };
+                Some((hwnd, a.config.clone(), visible))
+            })
+        });
+        if let Some((hwnd, c, v)) = info {
+            let next = menu::show(hwnd, &c, v, action == "interval-menu");
+            with_app(|a| {
+                a.menu_open = false;
+                a.flyout_shown = Instant::now();
+            });
+            if let Some(next) = next {
+                dispatch(next);
+            }
         }
         return;
     }
-    with_app(|a|a.action(&action));
+    with_app(|a| a.action(&action));
 }
-fn save_config(dir:&std::path::Path,c:&AppConfig) {
-    if let Err(error)=crate::engine::stores::save_config(dir.join("config.json"),c) {
+fn save_config(dir: &std::path::Path, c: &AppConfig) {
+    if let Err(error) = crate::engine::stores::save_config(dir.join("config.json"), c) {
         use std::io::Write;
-        if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open(dir.join("usage-monitor.log")) {
-            let _=writeln!(file,"{} [warn] config write failed: {}",Utc::now().to_rfc3339(),error);
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("usage-monitor.log"))
+        {
+            let _ = writeln!(
+                file,
+                "{} [warn] config write failed: {}",
+                Utc::now().to_rfc3339(),
+                error
+            );
         }
     }
 }
-fn worker(dir:PathBuf,no_poll:bool,rx:mpsc::Receiver<Work>,results:mpsc::Sender<Work>,ready:mpsc::SyncSender<(AppConfig,Option<Snapshot>)>) {
-    let json=std::fs::read(dir.join("config.json")).ok().map(|bytes|adapters::util::decode_text(&bytes));
-    let mut config=AppConfig::parse(json.as_deref());
-    let store=Arc::new(FileSnapshotStore::new(dir.join("snapshot.json")));
-    let cached=store.load();
-    config.autostart=win::registry::apply(config.autostart);save_config(&dir,&config);
-    let _=ready.send((config.clone(),cached));
-    let (poll_tx,mut poll_rx)=if no_poll {(None,None)}else{let (tx,rx)=mpsc::channel();(Some(tx),Some(rx))};
-    let alert_store=FileAlertStore::new(dir.join("alert-state.json"));let mut alerts=alert_store.load();
+fn worker(
+    dir: PathBuf,
+    no_poll: bool,
+    rx: mpsc::Receiver<Work>,
+    results: mpsc::Sender<Work>,
+    ready: mpsc::SyncSender<(AppConfig, Option<Snapshot>)>,
+) {
+    let json = std::fs::read(dir.join("config.json"))
+        .ok()
+        .map(|bytes| adapters::util::decode_text(&bytes));
+    let mut config = AppConfig::parse(json.as_deref());
+    let store = Arc::new(FileSnapshotStore::new(dir.join("snapshot.json")));
+    let cached = store.load();
+    config.autostart = win::registry::apply(config.autostart);
+    save_config(&dir, &config);
+    let _ = ready.send((config.clone(), cached));
+    let (poll_tx, mut poll_rx) = if no_poll {
+        (None, None)
+    } else {
+        let (tx, rx) = mpsc::channel();
+        (Some(tx), Some(rx))
+    };
+    let alert_store = FileAlertStore::new(dir.join("alert-state.json"));
+    let mut alerts = alert_store.load();
     // Persistence stays responsive while a provider is taking its full 25-second timeout.
-    while let Ok(command)=rx.recv() {
+    while let Ok(command) = rx.recv() {
         match command {
-            Work::Start=>{if !no_poll {if let Some(rx)=poll_rx.take(){let dir=dir.clone();let config=config.clone();let results=results.clone();std::thread::Builder::new().name("usage-monitor-poll".into()).spawn(move||poll_loop(dir,config,rx,results)).ok();}}},
-            Work::Config(c)=>{let actual_autostart=config.autostart;config=c;config.autostart=actual_autostart;save_config(&dir,&config);forward_poll(&poll_tx,Work::Config(config.clone()));},
-            Work::Autostart(c)=>{config=c;config.autostart=win::registry::apply(config.autostart);save_config(&dir,&config);let actual=config.autostart;post(move||with_app(|a|a.config.autostart=actual));forward_poll(&poll_tx,Work::Config(config.clone()));},
-            Work::Refresh=>forward_poll(&poll_tx,Work::Refresh),
-            Work::Snapshot(snapshot,polled)=>{
-                let toasts=alert_engine::evaluate(&snapshot,&mut alerts,config.notify_on_limit_reached,Utc::now());let _=alert_store.save(&alerts);
-                post(move||with_app(|a|{if polled{a.current=Some((*snapshot).clone());a.render();}if let Some(t)=&a.tray{for toast in toasts{t.balloon(&toast.title,&toast.body);}}}));
-            },
-            Work::Stop=>{forward_poll(&poll_tx,Work::Stop);break;},
+            Work::Start => {
+                if !no_poll {
+                    if let Some(rx) = poll_rx.take() {
+                        let dir = dir.clone();
+                        let config = config.clone();
+                        let results = results.clone();
+                        std::thread::Builder::new()
+                            .name("usage-monitor-poll".into())
+                            .spawn(move || poll_loop(dir, config, rx, results))
+                            .ok();
+                    }
+                }
+            }
+            Work::Config(c) => {
+                let actual_autostart = config.autostart;
+                config = c;
+                config.autostart = actual_autostart;
+                save_config(&dir, &config);
+                forward_poll(&poll_tx, Work::Config(config.clone()));
+            }
+            Work::Autostart(c) => {
+                config = c;
+                config.autostart = win::registry::apply(config.autostart);
+                save_config(&dir, &config);
+                let actual = config.autostart;
+                post(move || with_app(|a| a.config.autostart = actual));
+                forward_poll(&poll_tx, Work::Config(config.clone()));
+            }
+            Work::Refresh => forward_poll(&poll_tx, Work::Refresh),
+            Work::Snapshot(snapshot, polled) => {
+                let toasts = alert_engine::evaluate(
+                    &snapshot,
+                    &mut alerts,
+                    config.notify_on_limit_reached,
+                    Utc::now(),
+                );
+                let _ = alert_store.save(&alerts);
+                post(move || {
+                    with_app(|a| {
+                        if polled {
+                            a.current = Some((*snapshot).clone());
+                            a.render();
+                        }
+                        if let Some(t) = &a.tray {
+                            for toast in toasts {
+                                t.balloon(&toast.title, &toast.body);
+                            }
+                        }
+                    })
+                });
+            }
+            Work::Stop => {
+                forward_poll(&poll_tx, Work::Stop);
+                break;
+            }
         }
     }
 }
-fn poll_loop(dir:PathBuf,mut config:AppConfig,rx:mpsc::Receiver<Work>,results:mpsc::Sender<Work>) {
-    let store=Arc::new(FileSnapshotStore::new(dir.join("snapshot.json")));
-    let log=UsageLog::new(dir.join("usage-log.jsonl"));
-    let engine=PollEngine::new(vec![Arc::new(adapters::claude::ClaudeAdapter::new()),Arc::new(adapters::codex::CodexAdapter::new()),Arc::new(adapters::gemini::GeminiAdapter::new()),Arc::new(adapters::grok::GrokAdapter::new())],Some(store),Arc::new(Utc::now),25000);
-    let paths=Paths::from_process_env();let http=Arc::new(RealHttp::new());let credentials=Arc::new(WinCredReader::new());
-    let mut due=Instant::now();let mut failures=std::collections::HashMap::new();
+fn poll_loop(
+    dir: PathBuf,
+    mut config: AppConfig,
+    rx: mpsc::Receiver<Work>,
+    results: mpsc::Sender<Work>,
+) {
+    let store = Arc::new(FileSnapshotStore::new(dir.join("snapshot.json")));
+    let log = UsageLog::new(dir.join("usage-log.jsonl"));
+    let engine = PollEngine::new(
+        vec![
+            Arc::new(adapters::claude::ClaudeAdapter::new()),
+            Arc::new(adapters::codex::CodexAdapter::new()),
+            Arc::new(adapters::gemini::GeminiAdapter::new()),
+            Arc::new(adapters::grok::GrokAdapter::new()),
+        ],
+        Some(store),
+        Arc::new(Utc::now),
+        25000,
+    );
+    let paths = Paths::from_process_env();
+    let http = Arc::new(RealHttp::new());
+    let credentials = Arc::new(WinCredReader::new());
+    let mut due = Instant::now();
+    let mut failures = std::collections::HashMap::new();
     loop {
-        if !merge_poll_commands(rx.try_iter(),&mut config,&mut due){break;}
-        if Instant::now()>=due {
-            let ctx=AdapterContext{paths:paths.clone(),http:http.clone(),credentials:credentials.clone(),config:config.clone(),utc_now:Arc::new(Utc::now)};
-            let snapshot=engine.poll_once(&ctx,config.poll_interval_secs);log.append(&snapshot,Utc::now());
+        if !merge_poll_commands(rx.try_iter(), &mut config, &mut due) {
+            break;
+        }
+        if Instant::now() >= due {
+            let ctx = AdapterContext {
+                paths: paths.clone(),
+                http: http.clone(),
+                credentials: credentials.clone(),
+                config: config.clone(),
+                utc_now: Arc::new(Utc::now),
+            };
+            let snapshot = engine.poll_once(&ctx, config.poll_interval_secs);
+            log.append(&snapshot, Utc::now());
             for p in &snapshot.providers {
-                if matches!(p.status.state.as_str(),state::FETCH_FAILED|state::LOGGED_OUT|state::NOT_INSTALLED|state::UNKNOWN) {
-                    let failure=format!("{} {}",p.status.state,p.status.message.as_deref().unwrap_or(""));
-                    if failures.get(&p.id)!=Some(&failure) {use std::io::Write; if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open(dir.join("usage-monitor.log")){let _=writeln!(file,"{} [warn] provider {}: {}",Utc::now().to_rfc3339(),p.id,failure);} failures.insert(p.id.clone(),failure);}
-                }else{failures.remove(&p.id);}
+                if matches!(
+                    p.status.state.as_str(),
+                    state::FETCH_FAILED | state::LOGGED_OUT | state::NOT_INSTALLED | state::UNKNOWN
+                ) {
+                    let failure = format!(
+                        "{} {}",
+                        p.status.state,
+                        p.status.message.as_deref().unwrap_or("")
+                    );
+                    if failures.get(&p.id) != Some(&failure) {
+                        use std::io::Write;
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(dir.join("usage-monitor.log"))
+                        {
+                            let _ = writeln!(
+                                file,
+                                "{} [warn] provider {}: {}",
+                                Utc::now().to_rfc3339(),
+                                p.id,
+                                failure
+                            );
+                        }
+                        failures.insert(p.id.clone(), failure);
+                    }
+                } else {
+                    failures.remove(&p.id);
+                }
             }
-            if results.send(Work::Snapshot(snapshot,true)).is_err(){break;}
-            due=Instant::now()+Duration::from_secs(config.poll_interval_secs as u64);
+            if results.send(Work::Snapshot(snapshot, true)).is_err() {
+                break;
+            }
+            due = Instant::now() + Duration::from_secs(config.poll_interval_secs as u64);
             continue;
         }
-        let command=match rx.recv_timeout(due.saturating_duration_since(Instant::now())){Ok(c)=>c,Err(mpsc::RecvTimeoutError::Timeout)=>continue,Err(_)=>break};
-        if !merge_poll_commands(std::iter::once(command).chain(rx.try_iter()),&mut config,&mut due){break;}
+        let command = match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
+            Ok(c) => c,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(_) => break,
+        };
+        if !merge_poll_commands(
+            std::iter::once(command).chain(rx.try_iter()),
+            &mut config,
+            &mut due,
+        ) {
+            break;
+        }
     }
 }
-pub fn run(dir:PathBuf,no_poll:bool,single:SingleInstance)->Result<(),Box<dyn std::error::Error>> {
-    let (tx,rx)=mpsc::channel();let (ready,initial)=mpsc::sync_channel(1);
+pub fn run(
+    dir: PathBuf,
+    no_poll: bool,
+    single: SingleInstance,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, rx) = mpsc::channel();
+    let (ready, initial) = mpsc::sync_channel(1);
     // Startup reads finish before any window or UI event loop exists.
-    let results=tx.clone();
-    let io_worker=std::thread::Builder::new().name("usage-monitor-worker".into()).spawn(move||worker(dir,no_poll,rx,results,ready))?;
-    let (config,current)=initial.recv()?;
-    let chips=Chips::new()?;let flyout=Flyout::new()?;
-    let app=Rc::new(RefCell::new(AppController{config,current,chips,flyout,tray:None,single,worker:tx,tick:slint::Timer::default(),setup:slint::Timer::default(),chips_hwnd:std::ptr::null_mut(),flyout_hwnd:std::ptr::null_mut(),chips_rect:RectI::default(),last_geometry:None,menu_open:false,drag_start:None,drag_moved:false,flyout_shown:Instant::now()}));
-    APP.with(|a|*a.borrow_mut()=Some(app.clone()));
+    let results = tx.clone();
+    let io_worker = std::thread::Builder::new()
+        .name("usage-monitor-worker".into())
+        .spawn(move || worker(dir, no_poll, rx, results, ready))?;
+    let (config, current) = initial.recv()?;
+    let chips = Chips::new()?;
+    let flyout = Flyout::new()?;
+    let app = Rc::new(RefCell::new(AppController {
+        config,
+        current,
+        chips,
+        flyout,
+        tray: None,
+        single,
+        worker: tx,
+        tick: slint::Timer::default(),
+        setup: slint::Timer::default(),
+        chips_hwnd: std::ptr::null_mut(),
+        flyout_hwnd: std::ptr::null_mut(),
+        chips_rect: RectI::default(),
+        last_geometry: None,
+        menu_open: false,
+        drag_start: None,
+        drag_moved: false,
+        flyout_shown: Instant::now(),
+    }));
+    APP.with(|a| *a.borrow_mut() = Some(app.clone()));
     {
-        let mut a=app.borrow_mut();
-        a.chips.on_action(|s|dispatch(s.into()));a.flyout.on_action(|s|dispatch(s.into()));
-        a.chips.on_drag(|x,y,phase|with_app(|a|a.drag(false,x,y,phase)));a.flyout.on_drag(|x,y,phase|with_app(|a|a.drag(true,x,y,phase)));
-        a.chips.window().on_close_requested(||{dispatch("chips".into());slint::CloseRequestResponse::KeepWindowShown});
-        a.flyout.window().on_close_requested(||{dispatch("escape".into());slint::CloseRequestResponse::KeepWindowShown});
-        a.render();a.place();
-        if !a.config.chips_hidden {a.chips.show()?;}
-        if a.config.flyout_docked||a.config.flyout_pinned {a.flyout.show()?;}
-        a.tray=Some(Tray::new(Rc::new(dispatch)));
+        let mut a = app.borrow_mut();
+        a.chips.on_action(|s| dispatch(s.into()));
+        a.flyout.on_action(|s| dispatch(s.into()));
+        a.chips
+            .on_drag(|x, y, phase| with_app(|a| a.drag(false, x, y, phase)));
+        a.flyout
+            .on_drag(|x, y, phase| with_app(|a| a.drag(true, x, y, phase)));
+        a.chips.window().on_close_requested(|| {
+            dispatch("chips".into());
+            slint::CloseRequestResponse::KeepWindowShown
+        });
+        a.flyout.window().on_close_requested(|| {
+            dispatch("escape".into());
+            slint::CloseRequestResponse::KeepWindowShown
+        });
+        a.render();
+        a.place();
+        if !a.config.chips_hidden {
+            a.chips.show()?;
+        }
+        if a.config.flyout_docked || a.config.flyout_pinned {
+            a.flyout.show()?;
+        }
+        a.tray = Some(Tray::new(Rc::new(dispatch)));
         a.begin_setup();
-        a.tick.start(slint::TimerMode::Repeated,Duration::from_secs(1),||with_app(|a|a.tick()));
-        let _=a.worker.send(Work::Start);
+        a.tick
+            .start(slint::TimerMode::Repeated, Duration::from_secs(1), || {
+                with_app(|a| a.tick())
+            });
+        let _ = a.worker.send(Work::Start);
     }
-    let result=slint::run_event_loop_until_quit();
-    {let mut a=app.borrow_mut();a.tick.stop();a.setup.stop();a.tray.take();let _=a.worker.send(Work::Stop);}
-    APP.with(|a|a.borrow_mut().take());
+    let result = slint::run_event_loop_until_quit();
+    {
+        let mut a = app.borrow_mut();
+        a.tick.stop();
+        a.setup.stop();
+        a.tray.take();
+        let _ = a.worker.send(Work::Stop);
+    }
+    APP.with(|a| a.borrow_mut().take());
     // The loop has ended and tray is removed; drain pending config writes before process exit.
-    let _=io_worker.join();result.map_err(Into::into)
+    let _ = io_worker.join();
+    result.map_err(Into::into)
 }
 impl AppController {
     fn persist(&self) {
@@ -199,7 +483,8 @@ impl AppController {
                 self.chips_rect.w = (self.chips.get_content_width() * scale).round() as i32;
                 self.chips_rect.h = (self.chips.get_content_height() * scale).round() as i32;
                 taskbar::move_to(self.chips_hwnd, self.chips_rect);
-                let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
+                let cr =
+                    (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
                 window_style::round(self.chips_hwnd, self.chips_rect.w, self.chips_rect.h, cr);
             }
         }
@@ -215,9 +500,11 @@ impl AppController {
         }
     }
     fn begin_setup(&self) {
-        self.setup.start(slint::TimerMode::Repeated, Duration::from_millis(50), || {
-            with_app(|a| a.setup_windows())
-        });
+        self.setup.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(50),
+            || with_app(|a| a.setup_windows()),
+        );
     }
     fn setup_windows(&mut self) {
         let c = window_style::find("UsageMonitor-Rust-Chips");
@@ -358,7 +645,9 @@ impl AppController {
         if let Some(s) = &self.current {
             let (next, changed) = models::apply_local_resets(s, Utc::now());
             if changed {
-                let _ = self.worker.send(Work::Snapshot(Arc::new(next.clone()), false));
+                let _ = self
+                    .worker
+                    .send(Work::Snapshot(Arc::new(next.clone()), false));
                 self.current = Some(next);
                 let _ = self.worker.send(Work::Refresh);
                 self.render();
@@ -405,7 +694,9 @@ impl AppController {
             }
             "deactivate" => {
                 if !self.menu_open {
-                    slint::Timer::single_shot(Duration::from_millis(180), || dispatch("blur".into()));
+                    slint::Timer::single_shot(Duration::from_millis(180), || {
+                        dispatch("blur".into())
+                    });
                 }
             }
             "blur" => {
@@ -487,12 +778,20 @@ impl AppController {
                         self.render();
                         let scale = win::dpi::scale();
                         if !self.chips_hwnd.is_null() {
-                            let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
-                            window_style::round(self.chips_hwnd, self.chips_rect.w, self.chips_rect.h, cr);
+                            let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale)
+                                .round() as i32;
+                            window_style::round(
+                                self.chips_hwnd,
+                                self.chips_rect.w,
+                                self.chips_rect.h,
+                                cr,
+                            );
                         }
                         if !self.flyout_hwnd.is_null() {
                             if let Some(p) = taskbar::rect(self.flyout_hwnd) {
-                                let fr = (super::skins::flyout_radius(Some(&self.config.skin)) * scale).round() as i32;
+                                let fr = (super::skins::flyout_radius(Some(&self.config.skin))
+                                    * scale)
+                                    .round() as i32;
                                 window_style::round(self.flyout_hwnd, p.w, p.h, fr);
                             }
                         }
@@ -528,18 +827,51 @@ impl AppController {
             }
         }
     }
-    fn drag(&mut self,flyout:bool,_x:f32,_y:f32,phase:i32) {
-        if flyout&&self.config.flyout_docked{return;}
-        let hwnd=if flyout{self.flyout_hwnd}else{self.chips_hwnd};
-        let (x,y)=taskbar::cursor();
-        if phase==0{if let Some(p)=taskbar::rect(hwnd){self.drag_start=Some((x,y,p,flyout));self.drag_moved=false;}return;}
-        if let Some((sx,sy,p,f))=self.drag_start {
-            if f!=flyout{return;}
-            if phase==1&&((x-sx).abs()>=3||(y-sy).abs()>=3||self.drag_moved){self.drag_moved=true;taskbar::move_to(hwnd,RectI::new(p.x+x-sx,p.y+y-sy,p.w,p.h));}
-            if phase==2{
-                self.drag_start=None;
-                if self.drag_moved{if let Some(p)=taskbar::rect(hwnd){if flyout{self.config.flyout_x=Some(p.x);self.config.flyout_y=Some(p.y);}else{self.config.chips_x=Some(p.x);self.config.chips_y=Some(p.y);self.config.chips_docked=math::is_over_tray(p,Some(taskbar::geometry().1));self.chips_rect=p;self.place_chips();}self.persist();}}
-                else if !flyout {self.action("flyout");}
+    fn drag(&mut self, flyout: bool, _x: f32, _y: f32, phase: i32) {
+        if flyout && self.config.flyout_docked {
+            return;
+        }
+        let hwnd = if flyout {
+            self.flyout_hwnd
+        } else {
+            self.chips_hwnd
+        };
+        let (x, y) = taskbar::cursor();
+        if phase == 0 {
+            if let Some(p) = taskbar::rect(hwnd) {
+                self.drag_start = Some((x, y, p, flyout));
+                self.drag_moved = false;
+            }
+            return;
+        }
+        if let Some((sx, sy, p, f)) = self.drag_start {
+            if f != flyout {
+                return;
+            }
+            if phase == 1 && ((x - sx).abs() >= 3 || (y - sy).abs() >= 3 || self.drag_moved) {
+                self.drag_moved = true;
+                taskbar::move_to(hwnd, RectI::new(p.x + x - sx, p.y + y - sy, p.w, p.h));
+            }
+            if phase == 2 {
+                self.drag_start = None;
+                if self.drag_moved {
+                    if let Some(p) = taskbar::rect(hwnd) {
+                        if flyout {
+                            self.config.flyout_x = Some(p.x);
+                            self.config.flyout_y = Some(p.y);
+                        } else {
+                            self.config.chips_x = Some(p.x);
+                            self.config.chips_y = Some(p.y);
+                            self.config.chips_docked =
+                                math::is_over_tray(p, Some(taskbar::geometry().1));
+                            self.chips_rect = p;
+                            self.place_chips();
+                        }
+                        self.persist();
+                    }
+                } else if !flyout {
+                    self.action("flyout");
+                }
             }
         }
     }

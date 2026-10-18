@@ -1,17 +1,17 @@
 //! Headless software rendering; never creates an OS window or reads credentials.
-use std::{cell::RefCell, path::Path, rc::Rc};
-use chrono::{DateTime, Local, Utc};
-use slint::{Model, ModelRc, Rgb8Pixel, VecModel};
-use slint::platform::{
-    Platform, WindowAdapter,
-    software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
-};
+use super::{chip_model, skins, CardData, ChipData, Chips, Flyout, HeaderButtonData, LineData};
 use crate::core::{
-    contracts::{Snapshot, SnapshotStore, kind, state},
+    contracts::{kind, state, Snapshot, SnapshotStore},
     format,
 };
 use crate::engine::stores::FileSnapshotStore;
-use super::{CardData, ChipData, Chips, Flyout, HeaderButtonData, LineData, chip_model, skins};
+use chrono::{DateTime, Local, Utc};
+use slint::platform::{
+    software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
+    Platform, WindowAdapter,
+};
+use slint::{Model, ModelRc, Rgb8Pixel, VecModel};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
 fn color(rgb: u32) -> slint::Color {
     slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
@@ -95,7 +95,10 @@ fn dashed_round_outline(width: f32, h: f32, r: f32) -> String {
             2 => (width - 0.5, r + 0.5 + distance),
             3 => {
                 let angle = distance / r;
-                (width - r - 0.5 + r * angle.cos(), h - r - 0.5 + r * angle.sin())
+                (
+                    width - r - 0.5 + r * angle.cos(),
+                    h - r - 0.5 + r * angle.sin(),
+                )
             }
             4 => (width - r - 0.5 - distance, h - 0.5),
             5 => {
@@ -135,14 +138,24 @@ fn dashed_rect_outline(width: f32, height: f32) -> String {
     while x < width - 0.5 {
         let nx = (x + 3.0).min(width - 0.5);
         let _ = write!(path, "M{x:.1} 0.5 L{nx:.1} 0.5 ");
-        let _ = write!(path, "M{x:.1} {:.1} L{nx:.1} {:.1} ", height - 0.5, height - 0.5);
+        let _ = write!(
+            path,
+            "M{x:.1} {:.1} L{nx:.1} {:.1} ",
+            height - 0.5,
+            height - 0.5
+        );
         x += 6.0;
     }
     let mut y = 0.5;
     while y < height - 0.5 {
         let ny = (y + 3.0).min(height - 0.5);
         let _ = write!(path, "M0.5 {y:.1} L0.5 {ny:.1} ");
-        let _ = write!(path, "M{:.1} {y:.1} L{:.1} {ny:.1} ", width - 0.5, width - 0.5);
+        let _ = write!(
+            path,
+            "M{:.1} {y:.1} L{:.1} {ny:.1} ",
+            width - 0.5,
+            width - 0.5
+        );
         y += 6.0;
     }
     path
@@ -159,22 +172,7 @@ pub fn text_width_font(text: &str, family: &str, px: i32, bold: bool) -> i32 {
         let mut face: Vec<u16> = family.encode_utf16().collect();
         face.push(0);
         let weight = if bold { 700 } else { 400 };
-        let font = CreateFontW(
-            -px,
-            0,
-            0,
-            0,
-            weight,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            face.as_ptr(),
-        );
+        let font = CreateFontW(-px, 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 0, 0, face.as_ptr());
         let old = SelectObject(dc, font);
         let wide: Vec<_> = text.encode_utf16().collect();
         let mut size: SIZE = std::mem::zeroed();
@@ -319,7 +317,11 @@ fn update_classic(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, n
                     y += 20.0;
                 }
             }
-            let h = if lines.is_empty() { 39.0 } else { y - 6.0 + 9.0 };
+            let h = if lines.is_empty() {
+                39.0
+            } else {
+                y - 6.0 + 9.0
+            };
             heights.push(h);
             for line in &mut lines {
                 line.pct_width = text_width(line.pct.as_str(), 11, true).min(46) as f32;
@@ -496,7 +498,15 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
         flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
     }
 
-    let mut raw_cards: Vec<(usize, &crate::core::contracts::ProviderSnapshot, Vec<LineData>, f32, f32, bool, bool)> = Vec::new();
+    let mut raw_cards: Vec<(
+        usize,
+        &crate::core::contracts::ProviderSnapshot,
+        Vec<LineData>,
+        f32,
+        f32,
+        bool,
+        bool,
+    )> = Vec::new();
     let mut heights = Vec::new();
     if let Some(s) = snapshot {
         for (index, p) in s.providers.iter().enumerate() {
@@ -603,7 +613,15 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
             let y_after = if lines.is_empty() { 30.0 } else { y - 6.0 };
             let h = y_after + 9.0;
             heights.push(h);
-            raw_cards.push((index, p, lines, label_width.clamp(24, 104) as f32, y_after, is_ko, is_unmet));
+            raw_cards.push((
+                index,
+                p,
+                lines,
+                label_width.clamp(24, 104) as f32,
+                y_after,
+                is_ko,
+                is_unmet,
+            ));
         }
     }
 
@@ -618,7 +636,9 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
 
     let mut row_heights = Vec::new();
     for row in (0..heights.len()).step_by(2) {
-        let h = heights[row].max(*heights.get(row + 1).unwrap_or(&40.0)).max(40.0);
+        let h = heights[row]
+            .max(*heights.get(row + 1).unwrap_or(&40.0))
+            .max(40.0);
         row_heights.push(h);
     }
 
@@ -633,12 +653,15 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
         let eta_left = 314.0 - eta_column;
         for line in &mut lines {
             if line.kind == 0 {
-                let pct_w = (text_width_font(line.pct.as_str(), "Consolas", 11, true) + 2).max(46) as f32;
+                let pct_w =
+                    (text_width_font(line.pct.as_str(), "Consolas", 11, true) + 2).max(46) as f32;
                 let pct_left = eta_left - 6.0 - pct_w;
                 let meter_x = label_w + 24.0;
                 let meter_w = (pct_left - 6.0 - meter_x).max(24.0);
                 let rem = (100.0 - line.fill).clamp(0.0, 100.0);
-                let mut fill_w = ((meter_w - 2.0) * (rem / 100.0)).round().clamp(0.0, meter_w - 2.0);
+                let mut fill_w = ((meter_w - 2.0) * (rem / 100.0))
+                    .round()
+                    .clamp(0.0, meter_w - 2.0);
                 if rem > 0.0 && fill_w < 3.0 {
                     fill_w = 3.0;
                 }
@@ -653,7 +676,8 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
         if (is_ko || is_unmet) && lines.len() <= 1 && (card_h - y_after) >= 24.0 {
             let ghost_y = y_after + 5.0;
             let ghost_label = if is_ko { "  0/100" } else { " --/---" };
-            let ghost_pct_w = (text_width_font(ghost_label, "Consolas", 11, true) + 2).max(46) as f32;
+            let ghost_pct_w =
+                (text_width_font(ghost_label, "Consolas", 11, true) + 2).max(46) as f32;
             let ghost_pct_left = eta_left - 6.0 - ghost_pct_w;
             let ghost_track_x = 48.0;
             let ghost_track_w = (ghost_pct_left - 6.0 - ghost_track_x).max(24.0);
@@ -713,7 +737,14 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
         let (plan_text, plan_is_badge, plan_w, plan_bg, plan_border, plan_col) = if is_ko {
             ("KO".to_string(), true, 36.0, 0xc01818, 0xffd700, 0xffffff)
         } else if is_unmet {
-            ("UNMET".to_string(), true, 48.0, 0x202846, 0x8ca5d2, 0xc8d7f5)
+            (
+                "UNMET".to_string(),
+                true,
+                48.0,
+                0x202846,
+                0x8ca5d2,
+                0xc8d7f5,
+            )
         } else if let Some(pl) = p.plan.as_deref().filter(|s| !s.is_empty()) {
             (format!("LV. {pl}"), false, 0.0, 0, 0, 0xffd700)
         } else {
@@ -760,7 +791,15 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
             .iter()
             .map(|c| format!(
                 "{:?}",
-                (&c.id, &c.name, &c.plan, c.px, c.py, c.ph, c.lines.iter().collect::<Vec<_>>())
+                (
+                    &c.id,
+                    &c.name,
+                    &c.plan,
+                    c.px,
+                    c.py,
+                    c.ph,
+                    c.lines.iter().collect::<Vec<_>>()
+                )
             ))
             .collect::<Vec<_>>()
             .join("|")
@@ -872,7 +911,12 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
         flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
     }
 
-    let mut raw_cards: Vec<(usize, &crate::core::contracts::ProviderSnapshot, Vec<LineData>, i32)> = Vec::new();
+    let mut raw_cards: Vec<(
+        usize,
+        &crate::core::contracts::ProviderSnapshot,
+        Vec<LineData>,
+        i32,
+    )> = Vec::new();
     let mut heights = Vec::new();
     if let Some(s) = snapshot {
         for (index, p) in s.providers.iter().enumerate() {
@@ -889,7 +933,8 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
             }
             for w in &p.windows {
                 if w.kind == kind::CREDITS && w.used_pct.is_none() {
-                    let tag_w = (text_width(&format!("\u{25C6} {}", w.label), 11, false) + 14).min(302);
+                    let tag_w =
+                        (text_width(&format!("\u{25C6} {}", w.label), 11, false) + 14).min(302);
                     lines.push(LineData {
                         kind: 1,
                         ph: 20.0,
@@ -900,7 +945,8 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
                     continue;
                 }
                 let label = format::flyout_label(w);
-                card_label_w = card_label_w.max(text_width_font(&label, "Segoe UI Semibold", 11, false) + 2);
+                card_label_w =
+                    card_label_w.max(text_width_font(&label, "Segoe UI Semibold", 11, false) + 2);
                 let used = w.used_pct.unwrap_or(0.0).clamp(0.0, 100.0) as f32;
                 let alert = crate::core::models::is_alerting(w);
                 let (bar_top, bar_bottom) = if used >= 100.0 {
@@ -987,7 +1033,9 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
 
     let mut row_heights = Vec::new();
     for row in (0..heights.len()).step_by(2) {
-        let h = heights[row].max(*heights.get(row + 1).unwrap_or(&40.0)).max(40.0);
+        let h = heights[row]
+            .max(*heights.get(row + 1).unwrap_or(&40.0))
+            .max(40.0);
         row_heights.push(h);
     }
 
@@ -1090,7 +1138,15 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
             .iter()
             .map(|c| format!(
                 "{:?}",
-                (&c.id, &c.name, &c.plan, c.px, c.py, c.ph, c.lines.iter().collect::<Vec<_>>())
+                (
+                    &c.id,
+                    &c.name,
+                    &c.plan,
+                    c.px,
+                    c.py,
+                    c.ph,
+                    c.lines.iter().collect::<Vec<_>>()
+                )
             ))
             .collect::<Vec<_>>()
             .join("|")
@@ -1101,7 +1157,12 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
     }
 }
 
-fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: DateTime<Utc>) {
+fn update_terminal(
+    chips: &Chips,
+    flyout: &Flyout,
+    snapshot: Option<&Snapshot>,
+    now: DateTime<Utc>,
+) {
     let mut x = 7;
     let mut chip_data = Vec::new();
     if let Some(s) = snapshot {
@@ -1121,7 +1182,11 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
             let outline = if c.color_class == "red" {
                 0xff4444
             } else if c.color_class == "green" {
-                if c.stale { 0xffb000 } else { 0x33ff55 }
+                if c.stale {
+                    0xffb000
+                } else {
+                    0x33ff55
+                }
             } else {
                 0x4b825f
             };
@@ -1217,7 +1282,16 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
 
     let mut any_alert = false;
     let mut any_stale = false;
-    let mut raw_cards: Vec<(usize, &crate::core::contracts::ProviderSnapshot, Vec<LineData>, i32, i32, bool, bool, bool)> = Vec::new();
+    let mut raw_cards: Vec<(
+        usize,
+        &crate::core::contracts::ProviderSnapshot,
+        Vec<LineData>,
+        i32,
+        i32,
+        bool,
+        bool,
+        bool,
+    )> = Vec::new();
     let mut heights = Vec::new();
     if let Some(s) = snapshot {
         for (index, p) in s.providers.iter().enumerate() {
@@ -1300,9 +1374,14 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
                     y += 20.0;
                 }
             }
-            let is_offline = hint_opt.is_some() && (lines.is_empty() || (lines.len() == 1 && lines[0].kind == 2));
+            let is_offline = hint_opt.is_some()
+                && (lines.is_empty() || (lines.len() == 1 && lines[0].kind == 2));
             let is_card_alert = lines.iter().any(|l| l.alert || l.fill >= 100.0);
-            let h = if lines.is_empty() { 39.0 } else { y - 6.0 + 9.0 };
+            let h = if lines.is_empty() {
+                39.0
+            } else {
+                y - 6.0 + 9.0
+            };
             heights.push(h);
             raw_cards.push((
                 index,
@@ -1344,7 +1423,9 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
 
     let mut row_heights = Vec::new();
     for row in (0..heights.len()).step_by(2) {
-        let h = heights[row].max(*heights.get(row + 1).unwrap_or(&40.0)).max(40.0);
+        let h = heights[row]
+            .max(*heights.get(row + 1).unwrap_or(&40.0))
+            .max(40.0);
         row_heights.push(h);
     }
 
@@ -1368,7 +1449,8 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
         let total_slots = (((meter_w - bracket_w * 2.0) / char_w) as i32).max(6);
         for line in &mut lines {
             if line.kind == 0 {
-                let mut filled = ((total_slots as f32 * (line.fill / 100.0)).round() as i32).clamp(0, total_slots);
+                let mut filled = ((total_slots as f32 * (line.fill / 100.0)).round() as i32)
+                    .clamp(0, total_slots);
                 if filled >= total_slots && line.fill < 100.0 {
                     filled = total_slots - 1;
                 }
@@ -1449,7 +1531,15 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
             .iter()
             .map(|c| format!(
                 "{:?}",
-                (&c.id, &c.name, &c.plan, c.px, c.py, c.ph, c.lines.iter().collect::<Vec<_>>())
+                (
+                    &c.id,
+                    &c.name,
+                    &c.plan,
+                    c.px,
+                    c.py,
+                    c.ph,
+                    c.lines.iter().collect::<Vec<_>>()
+                )
             ))
             .collect::<Vec<_>>()
             .join("|")
@@ -1488,7 +1578,8 @@ impl Platform for Headless {
     }
 }
 
-pub fn install_headless() -> Result<Rc<RefCell<Vec<Rc<MinimalSoftwareWindow>>>>, slint::PlatformError> {
+pub fn install_headless(
+) -> Result<Rc<RefCell<Vec<Rc<MinimalSoftwareWindow>>>>, slint::PlatformError> {
     let windows = Rc::new(RefCell::new(Vec::new()));
     slint::platform::set_platform(Box::new(Headless {
         windows: windows.clone(),
@@ -1519,9 +1610,9 @@ pub fn load_snapshot(data_dir: &Path, exe_dir: &Path) -> Option<Snapshot> {
     FileSnapshotStore::new(data_dir.join("snapshot.json"))
         .load()
         .or_else(|| {
-            exe_dir
-                .ancestors()
-                .find_map(|p| FileSnapshotStore::new(p.join("fixtures/snapshot-sample.json")).load())
+            exe_dir.ancestors().find_map(|p| {
+                FileSnapshotStore::new(p.join("fixtures/snapshot-sample.json")).load()
+            })
         })
 }
 
@@ -1545,16 +1636,34 @@ pub fn run(
     let skin_id = skins::component_skin(skin);
     chips.set_skin(skin_id.into());
     flyout.set_skin(skin_id.into());
-    update(&chips, &flyout, load_snapshot(data, exe).as_ref(), Utc::now());
+    update(
+        &chips,
+        &flyout,
+        load_snapshot(data, exe).as_ref(),
+        Utc::now(),
+    );
     #[cfg(windows)]
     let scale = crate::win::dpi::scale();
     #[cfg(not(windows))]
     let scale = 1.0;
     for (index, name, width, height) in [
-        (0, "chips.png", chips.get_content_width(), chips.get_content_height()),
-        (1, "flyout.png", flyout.get_content_width(), flyout.get_content_height()),
+        (
+            0,
+            "chips.png",
+            chips.get_content_width(),
+            chips.get_content_height(),
+        ),
+        (
+            1,
+            "flyout.png",
+            flyout.get_content_width(),
+            flyout.get_content_height(),
+        ),
     ] {
-        let slint::PhysicalSize { width: w, height: h } = physical_size(width, height, scale);
+        let slint::PhysicalSize {
+            width: w,
+            height: h,
+        } = physical_size(width, height, scale);
         let data = pixels(&windows.borrow()[index], w, h, scale);
         let mut encoder = png::Encoder::new(std::fs::File::create(out.join(name))?, w, h);
         encoder.set_color(png::ColorType::Rgb);
