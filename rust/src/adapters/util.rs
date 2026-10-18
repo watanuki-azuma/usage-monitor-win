@@ -202,11 +202,69 @@ pub fn new_ok(id: &str, display_name: &str, now: DateTime<Utc>) -> ProviderSnaps
 // files
 // ----------------------------------------------------------------------------------------------
 
-/// `File.ReadAllText`: UTF-8 with an optional BOM, invalid bytes replaced.
+/// `File.ReadAllText`: the encoding comes from a byte order mark (UTF-32 LE/BE, UTF-16 LE/BE,
+/// UTF-8; UTF-32 LE is checked before UTF-16 LE as in .NET); without one the file is UTF-8.
+/// Invalid data is replaced with U+FFFD.
 pub fn read_text(path: &str) -> io::Result<String> {
-    let bytes = std::fs::read(path)?;
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(&bytes[..]);
-    Ok(String::from_utf8_lossy(bytes).into_owned())
+    Ok(decode_text(&std::fs::read(path)?))
+}
+
+pub fn decode_text(bytes: &[u8]) -> String {
+    fn utf32(rest: &[u8], f: fn([u8; 4]) -> u32) -> String {
+        rest.chunks(4)
+            .map(|c| <[u8; 4]>::try_from(c).ok().map(f).and_then(char::from_u32).unwrap_or('\u{FFFD}'))
+            .collect()
+    }
+    fn utf16(rest: &[u8], f: fn([u8; 2]) -> u16) -> String {
+        let (whole, tail) = rest.split_at(rest.len() & !1);
+        let mut out: String = char::decode_utf16(whole.chunks(2).map(|c| f([c[0], c[1]])))
+            .map(|r| r.unwrap_or('\u{FFFD}'))
+            .collect();
+        if !tail.is_empty() {
+            out.push('\u{FFFD}');
+        }
+        out
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE, 0x00, 0x00][..]) {
+        return utf32(rest, u32::from_le_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0x00, 0x00, 0xFE, 0xFF][..]) {
+        return utf32(rest, u32::from_be_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE][..]) {
+        return utf16(rest, u16::from_le_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF][..]) {
+        return utf16(rest, u16::from_be_bytes);
+    }
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// .NET Framework `ToString("F2", InvariantCulture)` for a double: the value is first cut to
+/// 15 significant digits, then rounded half away from zero (so 1.125 gives "1.13", where Rust's
+/// `{:.2}` gives "1.12").
+pub fn format_f2(x: f64) -> String {
+    if !x.is_finite() || x.abs() >= 1e15 {
+        return format!("{:.2}", x);
+    }
+    let s = format!("{:.14e}", x.abs()); // d.dddddddddddddde<exp>: 15 significant digits
+    let (mantissa, exp) = s.split_once('e').unwrap_or((&s, "0"));
+    let digits: u64 = mantissa.replace('.', "").parse().unwrap_or(0);
+    let exp: i32 = exp.parse().unwrap_or(0);
+    // value = digits * 10^(exp - 14); hundredths = digits * 10^(exp - 12)
+    let shift = exp - 12;
+    let hundredths: u64 = if shift >= 0 {
+        digits * 10u64.pow(shift as u32)
+    } else if -shift > 15 {
+        0
+    } else {
+        let div = 10u64.pow((-shift) as u32);
+        let (q, r) = (digits / div, digits % div);
+        if r * 2 >= div { q + 1 } else { q }
+    };
+    let sign = if x < 0.0 && hundredths != 0 { "-" } else { "" };
+    format!("{}{}.{:02}", sign, hundredths / 100, hundredths % 100)
 }
 
 pub fn file_exists(path: &str) -> bool {
@@ -224,12 +282,32 @@ pub fn delete_quietly(path: &str) {
     }
 }
 
-/// Writes `text` to `<path>.tmp` and renames it over `path` (one atomic replace: the destination
-/// is never deleted first). On a failed write the temp copy is removed.
+/// Writes `text` to `<path>.tmp` and swaps it in with [`replace_file`]. The caller removes the
+/// temp copy on failure, but only while `path` still exists (see `replace_file`).
 pub fn write_replace(path: &str, text: &str) -> io::Result<()> {
     let tmp = format!("{}.tmp", path);
     std::fs::write(&tmp, text.as_bytes())?;
-    std::fs::rename(&tmp, path)
+    replace_file(&tmp, path)
+}
+
+/// `File.Replace(src, dest, null)`: `ReplaceFileW`, which keeps the destination's security
+/// descriptor (DACL), owner, attributes and creation time instead of taking the temp file's.
+/// The destination must exist. When the call fails after the destination was already unlinked
+/// (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`), `src` is the only copy left, so callers must not delete
+/// it unless `dest` still exists.
+pub fn replace_file(src: &str, dest: &str) -> io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (src_w, dest_w) = (wide(src), wide(dest));
+    // SAFETY: both strings are NUL-terminated and outlive the call; no backup file, no reserved data.
+    let ok = unsafe {
+        ReplaceFileW(dest_w.as_ptr(), src_w.as_ptr(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null())
+    };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 pub fn copy_map(value: Option<&Value>) -> Map<String, Value> {

@@ -297,7 +297,9 @@ fn refresh_now(ctx: &AdapterContext, creds: &Creds, now: DateTime<Utc>) -> Resul
         // cannot leave the user's credentials missing, and a failing replace keeps the original.
         util::write_replace(&cred_path, &indented_json(&Value::Object(root)))
     })();
-    if outcome.is_err() {
+    // Only remove the scratch copy while the credentials file is still there: a replace that
+    // failed after unlinking the destination leaves the .tmp file as the only copy.
+    if outcome.is_err() && util::file_exists(&cred_path) {
         util::delete_quietly(&format!("{}.tmp", cred_path));
     }
     Ok(Outcome::Refreshed)

@@ -82,7 +82,7 @@ pub fn map_billing(body: &Value, now: DateTime<Utc>) -> ProviderSnapshot {
     } else if let Some(pb) = prepaid.filter(|p| *p > 0.0) {
         windows.push(UsageWindow {
             kind: kind::CREDITS.to_string(),
-            label: format!("Credits ${:.2}", pb),
+            label: format!("Credits ${}", util::format_f2(pb)),
             used_pct: None,
             remaining_pct: None,
             resets_at: None,
@@ -738,7 +738,7 @@ fn refresh_grok(
             util::delete_quietly(&tmp);
             return Ok(());
         }
-        std::fs::rename(&tmp, creds_path)
+        util::replace_file(&tmp, creds_path)
     };
     if write().is_err() {
         // The in-memory token is still usable. Only remove the scratch copy when the credentials

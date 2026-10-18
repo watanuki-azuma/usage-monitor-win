@@ -48,7 +48,7 @@
 - Fake HTTP `HttpResult` of tests carries no `json`; the helpers (`get_json` ...) parse the text, like C#.
 - `wincred::WinCredReader` is compiled but not exercised by tests (as in C#).
 
-## Review (Codex Sol xhigh, 2026-10-18) — not yet verified or fixed
+## Review (Codex Sol xhigh, 2026-10-18) — all 4 confirmed in the code and fixed (see below)
 
 - **Credential replacements lose Windows permissions** — [util.rs:232](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/util.rs:232), also `grok.rs:741`. If a credential file has a restrictive explicit ACL but its directory grants broader access, refreshing replaces it with the temporary file’s broader permissions. C# uses `File.Replace` (`ClaudeAdapter.cs:260`, `GrokAdapter.cs:728`), which preserves the destination’s DACL; Rust uses `rename`. Fix both replacement paths to preserve the original security metadata, using [ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
 
@@ -57,3 +57,15 @@
 - **Previously readable credential files become logged out** — [util.rs:208](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/util.rs:208). A valid Codex `auth.json` saved as UTF-16LE with a BOM works in C# (`CodexAdapter.cs:224`), but Rust decodes it as UTF-8, fails JSON parsing, and returns `logged_out`. C#’s `File.ReadAllText` [detects UTF-16 and UTF-32 BOMs](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.readalltext?view=netframework-4.8.1). Fix `read_text` to recognize those encodings.
 
 - **Prepaid-credit labels round differently** — [grok.rs:85](E:/claude-projects/usage-monitor-app/native/.claude/worktrees/agent-a8f61b11d8b54e266/rust/src/adapters/grok.rs:85). For `{"prepaidBalance":{"val":1.125}}`, C# (`GrokAdapter.cs:84`) displays `Credits $1.13`; Rust displays `Credits $1.12` because fixed-precision formatting uses [half-to-even rounding](https://doc.rust-lang.org/std/fmt/). Fix by matching .NET Framework’s numeric formatting before constructing the label.
+
+### Fixes (parent, 2026-10-18)
+
+- ACL: `util::replace_file` = `ReplaceFileW` (keeps the destination DACL/owner/attributes, like
+  `File.Replace`); used by Claude (`write_replace`) and Grok. Claude now removes the `.tmp` only while
+  the credentials file still exists (same guard as Grok; the C# Claude code deletes it unconditionally).
+- Proxy: ureq `win-system-proxy` (adds pure-Rust `winreg`): env vars first, then the Internet Options
+  static proxy. Loopback hosts always go direct. Not covered: PAC/auto-detect, per-protocol
+  `ProxyServer` strings (`http=..;https=..`), `ProxyOverride` bypass list.
+- BOM: `util::decode_text` detects UTF-32 LE/BE, UTF-16 LE/BE and UTF-8 BOMs (.NET order).
+- F2: `util::format_f2` (15 significant digits, then half away from zero), used for the Grok label.
+- 3 tests added (`r2_review_tests`); `build.ps1 -SkipRelease`: 96 passed, 0 failed.

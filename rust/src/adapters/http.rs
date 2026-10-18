@@ -49,6 +49,18 @@ fn parse_url(url: &str) -> Result<String, HttpError> {
     Ok(trimmed.to_string())
 }
 
+/// Host of an absolute URL (already checked by `parse_url`) is localhost, 127.x.x.x or [::1].
+fn is_loopback(url: &str) -> bool {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let authority = rest.split(|c| c == '/' || c == '?' || c == '#').next().unwrap_or("");
+    let host = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority).to_ascii_lowercase();
+    if host.starts_with("[::1]") {
+        return true;
+    }
+    let name = host.split(':').next().unwrap_or("");
+    name == "localhost" || name.starts_with("127.")
+}
+
 impl Http for RealHttp {
     fn request(
         &self,
@@ -77,8 +89,12 @@ impl Http for RealHttp {
             .http_status_as_error(false)
             .max_redirects(0)
             .timeout_global(Some(Duration::from_millis(timeout as u64)))
-            .tls_config(tls)
-            .build();
+            .tls_config(tls);
+        // The proxy comes from HTTP(S)_PROXY / ALL_PROXY, else the Windows (Internet Options)
+        // static proxy (ureq `win-system-proxy`), like .NET's default proxy. Loopback addresses
+        // always go direct, as .NET does.
+        let config = if is_loopback(&url) { config.proxy(None) } else { config };
+        let config = config.build();
         let agent: ureq::Agent = config.into();
 
         let mut builder = ureq::http::Request::builder().method(verb.as_str()).uri(url.as_str());

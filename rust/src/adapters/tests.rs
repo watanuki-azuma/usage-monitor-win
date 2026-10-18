@@ -1437,3 +1437,65 @@ mod m3_review_tests {
         );
     }
 }
+
+/// Fixes from the R2 review (Codex Sol xhigh): BOM detection, F2 rounding, ReplaceFileW.
+mod r2_review_tests {
+    use super::super::util::{decode_text, format_f2, replace_file};
+    use std::fs;
+
+    #[test]
+    fn read_text_detects_utf16_and_utf32_boms() {
+        let text = "{\"a\":\"é😀\"}";
+        let mut le16 = vec![0xFF, 0xFE];
+        le16.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
+        let mut be16 = vec![0xFE, 0xFF];
+        be16.extend(text.encode_utf16().flat_map(|u| u.to_be_bytes()));
+        let mut le32 = vec![0xFF, 0xFE, 0x00, 0x00];
+        le32.extend(text.chars().flat_map(|c| (c as u32).to_le_bytes()));
+        let mut be32 = vec![0x00, 0x00, 0xFE, 0xFF];
+        be32.extend(text.chars().flat_map(|c| (c as u32).to_be_bytes()));
+        let mut utf8 = vec![0xEF, 0xBB, 0xBF];
+        utf8.extend(text.as_bytes());
+        for bytes in [le16, be16, le32, be32, utf8, text.as_bytes().to_vec()] {
+            assert_eq!(decode_text(&bytes), text);
+        }
+        assert_eq!(decode_text(&[0xFF, 0xFE, 0x41, 0x00, 0x42]), "A\u{FFFD}");
+    }
+
+    #[test]
+    fn format_f2_rounds_like_dotnet_framework() {
+        let cases = [
+            (1.125, "1.13"),
+            (2.675, "2.68"),
+            (0.005, "0.01"),
+            (0.004, "0.00"),
+            (10.0, "10.00"),
+            (1.0049999999999999, "1.01"),
+            (123456.789, "123456.79"),
+            (-1.125, "-1.13"),
+            (-0.001, "0.00"),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(format_f2(value), expected, "{}", value);
+        }
+    }
+
+    #[test]
+    fn replace_file_swaps_contents_and_needs_the_destination() {
+        let dir = std::env::temp_dir().join(format!("um-r2-replace-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("creds.json");
+        let tmp = dir.join("creds.json.tmp");
+        let (d, t) = (dest.to_str().unwrap(), tmp.to_str().unwrap());
+        fs::write(&dest, "old").unwrap();
+        fs::write(&tmp, "new").unwrap();
+        replace_file(t, d).unwrap();
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "new");
+        assert!(!tmp.exists());
+        fs::remove_file(&dest).unwrap();
+        fs::write(&tmp, "orphan").unwrap();
+        assert!(replace_file(t, d).is_err());
+        assert!(tmp.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
