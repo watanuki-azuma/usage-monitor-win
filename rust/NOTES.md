@@ -132,3 +132,25 @@ merged and reviewed.
   renders in `rust/reference-renders/<skin>/` in dimensions, layout, colours, fonts, and texts (details
   in `notes-R5.md`).
 
+
+## R6 parity checklist (2026-10-18, release exe, this machine: 2560x1440, 96 DPI, vertical taskbar left 62 px)
+
+Run as the real app (C# app stopped, `--data-dir` = copy of the C# data dir, polling on), driven by a
+script (tray messages, keyboard on the popup menu, window rects, config.json, HKCU Run).
+
+| check | result |
+|---|---|
+| first poll with the real credentials | ok: claude/codex/gemini `ok`, grok `not_installed`; snapshot.json written |
+| tray menu items, order, check marks | ok: same as `TrayController.cs` (Refresh now, Refresh every ▸ 5/15/30/60 [60 checked], Hide chips, Open flyout, Snap flyout/chips to taskbar, Start with Windows, Design ▸ 4 skins [current checked], Quit) |
+| tray left click → flyout, foreground; Esc closes it | ok (flyout at x=62, beside the vertical taskbar) |
+| single instance: 2nd launch exits 0 and shows the 1st one's flyout | ok (also against the C# app, R4) |
+| snap / unsnap chips | ok; docked chips at (0,1121) 288x30 — **same as the C# app** with the same config (the "x=62" in SPEC §6 is the undocked position) |
+| live skin switch rpg / fluent / classic | ok: sizes follow the skin (rpg 328 / fluent 302 / classic 288 px chips), position and visibility kept, `skin` saved |
+| Start with Windows on / off | ok: HKCU Run `Usage Monitor` = quoted exe path, then removed (state restored) |
+| `TaskbarCreated` (simulated Explorer restart) | ok: process alive, icon re-added, menu still opens. A real Explorer restart was not done |
+| Quit from the menu | ok: process exits, tray window gone |
+| idle | working set 31.9–32.3 MB, private 7.5–8.1 MB, 10 threads, CPU 156 ms over 60 s **including one real 60 s poll** |
+
+Not checked live: toast balloons (needs a window crossing 80 %/100 %; texts are covered by the engine
+tests), a real Explorer restart, a horizontal taskbar, DPI other than 100 %.
+Code: `src/ui`, `src/win`, `src/main.rs` reformatted with rustfmt (R4 dense style).
