@@ -1,0 +1,135 @@
+import { SkinWindow, ChipData, CardData, LineData } from "../common.slint";
+export { ChipData, CardData, LineData }
+
+component Badge inherits Rectangle {
+    in property <string> initial;
+    in property <color> accent;
+    width: 13px; height: 13px; border-radius: 4px;
+    background: accent; border-width: 1px; border-color: #ffffff46;
+    Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: root.initial; color: #111827; font-size: 9px; font-weight: 700;
+        horizontal-alignment: center; vertical-alignment: center; }
+}
+export component Chips inherits SkinWindow {
+    in property <[ChipData]> chips <=> root.shared-chips;
+    in property <[CardData]> cards <=> root.shared-cards;
+    in property <float> content-width <=> root.shared-content-width;
+    in property <float> content-height <=> root.shared-content-height;
+    in property <bool> docked <=> root.shared-docked;
+    in property <bool> pinned <=> root.shared-pinned;
+    in property <int> interval <=> root.shared-interval;
+    in-out property <string> render-key <=> root.shared-render-key;
+    callback action <=> root.shared-action;
+    callback drag <=> root.shared-drag;
+    title: "UsageMonitor-Rust-Chips";
+    background: #111827;
+    Rectangle {
+        x: 0px; y: 0px;
+        width: parent.width - 1px; height: parent.height - 1px;
+        border-radius: 6px; background: #111827; border-color: #ffffff24; border-width: 1px;
+        for chip in root.chips: Rectangle {
+            x: chip.px * 1px; y: 4px; width: chip.pw * 1px; height: 22px;
+            background: #0f1522; border-radius: 5px;
+            border-width: chip.stale ? 0px : 1px; border-color: chip.outline;
+            if chip.stale: Path {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; stroke: chip.outline;
+                viewbox-x: 0; viewbox-y: 0; viewbox-width: chip.pw; viewbox-height: 22;
+                fill: transparent; stroke-width: 1px; commands: chip.dash-path;
+            }
+            Badge { x: 7px; y: 4px; initial: chip.initial; accent: chip.accent; }
+            Text { x: 24px; width: parent.width - 25px; height: parent.height;
+                text: chip.text; color: chip.ink; font-weight: 700; font-size: 11px;
+                vertical-alignment: center; }
+        }
+    }
+    t := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up { root.action("menu"); }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 0); }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 2); }
+        }
+        moved => { if self.pressed { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 1); } }
+    }
+}
+component HeaderButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    callback context-menu;
+    height: 22px; border-radius: 6px;
+    background: active ? #fbbf2426 : touch.has-hover ? #ffffff1c : #ffffff1a;
+    Text { text: root.label; color: root.active ? #fbbf24 : #9ca3af;
+        horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(e) => { if e.button == PointerEventButton.right && e.kind == PointerEventKind.up { root.context-menu(); } }
+    }
+}
+export component Flyout inherits SkinWindow {
+    in property <[ChipData]> chips <=> root.shared-chips;
+    in property <[CardData]> cards <=> root.shared-cards;
+    in property <float> content-width <=> root.shared-content-width;
+    in property <float> content-height <=> root.shared-content-height;
+    in property <bool> docked <=> root.shared-docked;
+    in property <bool> pinned <=> root.shared-pinned;
+    in property <int> interval <=> root.shared-interval;
+    in-out property <string> render-key <=> root.shared-render-key;
+    callback action <=> root.shared-action;
+    callback drag <=> root.shared-drag;
+    title: "UsageMonitor-Rust-Flyout";
+    background: #111827;
+    Rectangle {
+        x: 0px; y: 0px;
+        width: parent.width - 1px; height: parent.height - 1px;
+        border-radius: 12px; border-width: 1px; border-color: #ffffff24; background: #111827;
+    }
+    t := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up { root.action("menu"); }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 0); }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 2); }
+        }
+        moved => { if self.pressed { root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 1); } }
+    }
+    Text { x: 13px; y: 13px; height: 28px; text: "Usage Monitor"; color: #e5e7eb; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+    HeaderButton { x: root.width - 244px - (root.interval >= 10 ? 6px : 0px); y: 16px; width: 39px; label: "Pin"; active: root.pinned; clicked => { root.action("pin"); } context-menu => { root.action("menu"); } }
+    HeaderButton { x: root.width - 199px - (root.interval >= 10 ? 6px : 0px); y: 16px; width: 49px; label: "Dock"; active: root.docked; clicked => { root.action("flyout-dock"); } context-menu => { root.action("menu"); } }
+    HeaderButton { x: root.width - 144px - (root.interval >= 10 ? 6px : 0px); y: 16px; width: root.interval >= 10 ? 69px : 63px; label: "Every " + root.interval + "s"; clicked => { root.action("interval-menu"); } context-menu => { root.action("menu"); } }
+    HeaderButton { x: root.width - 75px; y: 16px; width: 62px; label: "Refresh"; clicked => { root.action("refresh"); } context-menu => { root.action("menu"); } }
+    for card in root.cards: Rectangle {
+        x: card.px * 1px; y: card.py * 1px; width: 303px; height: card.ph * 1px;
+        border-radius: 10px; background: #171f2c; border-width: 1px; border-color: #ffffff14;
+        Rectangle { x: 0px; y: 4px; width: 2px; height: parent.height - 8px; background: card.accent; }
+        Badge { x: 12px; y: 9px; accent: card.accent; initial: card.initial; }
+        Text { x: 31px; y: 8px; height: 16px; width: 160px; text: card.name; font-size: 12px; font-weight: 700; color: #f3f4f6; vertical-alignment: center; }
+        Text { x: 192px; y: 8px; height: 16px; width: 99px; text: card.plan; color: #9ca3af; horizontal-alignment: right; vertical-alignment: top; overflow: elide; }
+        for line in card.lines: Rectangle {
+            x: 12px; y: line.py * 1px; width: 279px; height: line.kind == 0 ? 16px : 14px;
+            if line.kind == 0: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                Text { x: 0px; y: 0px; width: card.label-width * 1px; height: parent.height; text: line.label; color: line.alert ? #fecaca : #d1d5db; font-weight: 700; vertical-alignment: top; overflow: elide; }
+                Rectangle { x: (card.label-width + 6) * 1px; y: 5px; height: 6px;
+                    width: max(12, 279 - card.label-width - 6 - line.pct-width - 6 - card.eta-width - 6) * 1px;
+                    border-radius: 3px; background: #1f2937;
+                    Rectangle { x: 0px; y: 0px; width: parent.width * line.fill / 100; height: 6px; border-radius: 3px; background: line.alert ? #ef4444 : #22c55e; }
+                }
+                Text { x: (279 - card.eta-width - 6 - line.pct-width) * 1px; y: 0px; width: (line.pct-width + 2) * 1px; height: parent.height; text: line.pct; font-weight: 700; color: line.alert ? #fecaca : #f3f4f6; horizontal-alignment: right; vertical-alignment: top; }
+                Text { x: (279 - card.eta-width) * 1px; y: 0px; width: card.eta-width * 1px; height: parent.height; text: line.eta; color: #9ca3af; horizontal-alignment: right; vertical-alignment: top; }
+            }
+            if line.kind != 0: Text {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; text: line.text; vertical-alignment: top;
+                font-size: line.kind == 4 ? 10px : 11px;
+                color: line.kind == 4 ? #f59e0b : line.kind == 3 ? #6b7280 : line.kind == 1 ? #e5e7eb : #9ca3af;
+                horizontal-alignment: line.kind == 4 ? right : left; overflow: elide;
+            }
+        }
+        TouchArea {
+            clicked => { root.action("usage:" + card.id); }
+            pointer-event(e) => { if e.button == PointerEventButton.right && e.kind == PointerEventKind.up { root.action("menu"); } }
+        }
+    }
+    if root.docked: Rectangle { x: 6px; y: root.height - 2px; width: root.width - 12px; height: 2px; background: #60a5fa8c; }
+    focus := FocusScope {
+        key-pressed(e) => { if e.text == Key.Escape { root.action("escape"); return accept; } return reject; }
+    }
+    forward-focus: focus;
+}

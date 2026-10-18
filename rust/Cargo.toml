@@ -41,3 +41,8 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+# LLVM dlltool's raw-dylib fragments for the same DLL can leave orphan IAT entries on this
+# GNU toolchain. Reuse the conventional import library already supplied by windows-sys 0.59.
+[patch.crates-io]
+windows-link = { path = "vendor/windows-link" }

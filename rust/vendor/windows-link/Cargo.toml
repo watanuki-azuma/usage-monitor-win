@@ -1,0 +1,10 @@
+[package]
+name = "windows-link"
+version = "0.2.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "windows-link 0.2.1 GNU import-library compatibility patch"
+publish = false
+
+[dependencies]
+windows-targets = "0.52.6"

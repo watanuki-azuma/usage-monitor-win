@@ -53,3 +53,64 @@ merged and reviewed.
 - Next: R4 (windows integration + classic skin + render-test). Routing plan: tricky-impl -> Codex Sol
   high (its workspace-write sandbox can run `build.ps1`, checked on 2026-10-18), review Sol xhigh.
 - Worker notes per milestone: `notes-R3.md` (and `notes-R2.md` on the R2 branch).
+
+## R4 (2026-10-18, partial acceptance)
+
+- Added pure `ui::chip_model` and `ui::taskbar_math`; seven M5_Ui tests ported with the same snake_case
+  names/cases. Added config skin round-trip, registry, and headless render smoke tests: ten new tests.
+- Classic UI lives in `ui/common.slint` and `ui/classic/app.slint`, loaded by `slint!` in `ui/mod.rs`.
+  Shared models/properties/callbacks are inherited and exported by both windows. All four registry ids
+  currently instantiate classic; selecting another id keeps that id in config.json for R5.
+- `Theme.cs` in this checkout uses rounded C/X/G/K initial badges, not custom brand vector shapes;
+  those badges are reproduced. Stale outlines use Slint Paths with sampled rounded dashes.
+- Headless platform uses `MinimalSoftwareWindow` and RGB buffers/PNG encoding; never shows an OS
+  window or reads credentials. Both generated PNG pairs were viewed and iterated against the supplied
+  C# references. Layout/content/colors match closely at 294x30 and 640x262. Remaining differences:
+  font rasterization/weight and small baseline shifts, rounded-edge antialiasing, stale dash phase.
+- Win32 modules cover the named mutex/event (same C# names), tray badge/menu/checkmarks, Explorer
+  restart, Run value `Usage Monitor`, balloons, tool/no-activate/topmost styles, rounded window regions,
+  taskbar/monitor geometry and DPI initialization. Chips/flyout callbacks wire refresh, interval,
+  pin/dock, visibility, drag positions, Esc/Alt+F4, delayed blur, provider usage URLs and skin selection.
+- PollEngine runs on its own worker; a separate I/O worker serializes config/alert persistence and
+  registry work, keeping saves responsive during slow polls. Results use `invoke_from_event_loop`.
+  One 1s UI timer handles local resets, visible ETA changes, activation and taskbar/watchdog checks.
+  The 50ms native-handle setup timer stops once visible windows are found; blur uses a temporary 180ms
+  single-shot. No animation timers. Unchanged visible data retains its Slint models.
+- Only additive engine API: `engine::stores::save_config(path, config)` exposes the existing atomic
+  writer for UI worker persistence. No core/adapter behavior changed. `win::wincred` reexports the R2
+  reader; its implementation stays unchanged.
+- Toolchain finding: linking actual Slint rendering into the release tests exposed orphan raw-dylib
+  IAT entries (e.g. GetProcessHeap held an RVA rather than a resolved address), causing startup AVs.
+  `vendor/windows-link` patches the existing 0.2.1 package to use the existing windows-targets 0.52.6
+  GNU import library. Non-GNU behavior remains upstream. No new crate versions or C compilation;
+  build.ps1 and its workarounds are untouched. Release tests and render-test now start successfully.
+- Full build: `RESULT: 127 passed, 6 failed` (133 total). All ten UI tests pass. Six existing token-file
+  replacement tests fail with Windows error 5. Reproduced in the default temp directory and in this
+  worktree; C# File.Replace on dummy worktree files also throws UnauthorizedAccessException. These
+  tests were not skipped and ReplaceFileW was not weakened. Details/result lines: `notes-R4.md`.
+- M5_Skins adaptations/skips: registry test checks four ids/names/normalization and R4's allowed classic
+  fallback rather than WinForms runtime types/namespaces. Each-skin smoke test renders the fallback
+  for all four ids without native windows. Only `test_rpg_chips_show_remaining_while_colour_follows_used`
+  is deferred wholesale: RPG rendering belongs to R5.
+- Section 9: final exe size in `notes-R4.md`; idle working set/private bytes/CPU/thread count not measured.
+  No normal app process was started. Read-only query reports 2560x1440 at 96 DPI, but Shell_TrayWnd is
+  inaccessible on this sandbox desktop. Interactive winit DPI, docking and integration checks remain
+  unverified. In particular §6's observed vertical x=62 conflicts with the checked-in C# fit/clamp
+  control flow, which can yield x=0 for a wide bar; this port follows the C# source pending comparison.
+- Final release: `APP: target\release\UsageMonitor.exe (9,307,136 bytes)` (8.88 MiB).
+  Final classic render-test: exit 0 in 434 ms; 294x30 chips, 640x262 flyout, both inspected after build.
+  `--render-test=... --skin=terminal --no-poll --data-dir=...` also exits 0 with classic fallback.
+
+## R4 (2026-10-18)
+
+- Windows integration + classic skin + `--render-test` (Codex Sol high; review Sol xhigh: 5 findings,
+  all fixed by the worker; details in `notes-R4.md`). `build.ps1` (outside the Codex sandbox, which denies
+  `ReplaceFileW`): RESULT 139 passed, 0 failed; APP 9,311,232 bytes.
+- Render-test classic: exit 0 in ~0.3 s, no window; matches the C# render (layout, colours, texts); fonts,
+  antialiasing and dash phase differ slightly. Brand marks are letters, as in C# `Theme.Initial()`.
+- Measured on this machine (release exe before the review fixes, `--no-poll`, copy of the C# data dir,
+  chips shown, flyout closed): working set 25.4 MB, private 4.7 MB, 9 threads, CPU 0 ms over 30 s.
+  Chips placed at the saved undocked position (118,1098), same as the C# config.
+- Single instance: launching the Rust exe while the C# app runs exits in 150 ms (shared mutex/event).
+- Not yet checked by hand: tray menu items, docking on the vertical taskbar, flyout focus/Esc, toasts,
+  Explorer restart, autostart (R6 checklist).
