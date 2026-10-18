@@ -154,3 +154,20 @@ script (tray messages, keyboard on the popup menu, window rects, config.json, HK
 Not checked live: toast balloons (needs a window crossing 80 %/100 %; texts are covered by the engine
 tests), a real Explorer restart, a horizontal taskbar, DPI other than 100 %.
 Code: `src/ui`, `src/win`, `src/main.rs` reformatted with rustfmt (R4 dense style).
+
+### R6 follow-up: windows showed only a title bar (2026-10-18, found on the desktop after the switch)
+
+The checklist above read window rects and styles but never looked at the screen. On the desktop the chips
+got an old-style title bar painted over them when the tray menu opened, and the flyout showed only a
+title bar with no content. Causes and fixes (`src/win/window_style.rs`):
+
+- winit keeps `WS_CAPTION` on undecorated windows (hidden through `WM_NCCALCSIZE`) and passes
+  `WM_NCACTIVATE` to `DefWindowProc`, which paints the caption over the client area on activation
+  changes. Both windows are now subclassed: `WM_NCACTIVATE` goes on with lParam -1 (no repaint),
+  `WM_SETTEXT`/`WM_SETICON` run with `WS_VISIBLE` cleared; the style is set to `WS_POPUP` without
+  caption (also re-checked by the 1 s tick). Chips are now 30 px high (the caption minimum made them 39).
+- The software renderer repaints only regions it knows changed, so after the hide/show that applies
+  the tool-window styles the flyout stayed empty. `tool()` now resizes the window by 1 px and back from
+  two timers so Slint repaints everything.
+
+Checked with screenshots: chips with the tray menu open, flyout opened twice, RPG skin live.

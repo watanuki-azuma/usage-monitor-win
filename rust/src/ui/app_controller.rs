@@ -642,6 +642,8 @@ impl AppController {
         if self.config.chips_docked && !self.config.chips_hidden {
             window_style::topmost(self.chips_hwnd);
         }
+        window_style::frameless(self.chips_hwnd);
+        window_style::frameless(self.flyout_hwnd);
         if let Some(s) = &self.current {
             let (next, changed) = models::apply_local_resets(s, Utc::now());
             if changed {
