@@ -53,3 +53,11 @@ Status: **done**. The `rpg`, `fluent`, and `terminal` skins are implemented in S
 ## Open points
 
 - Interactive desktop checks (live tray menu clicking, vertical taskbar docking, focus/Esc dismissal, Explorer restart, and idle memory/CPU measurement across skins) remain for the R6 manual/integration checklist, as the app was only run with `--render-test`.
+
+## Review (Sonnet route-review, 2026-10-18) and fixes (parent)
+
+- Skin switch called `place()` unconditionally, which moved an unpinned, undocked flyout back to its
+  anchor: removed; `render()` already follows size changes (and re-docks docked windows).
+- RPG/Fluent/Terminal replaced the header-buttons model on every render (every second while the flyout
+  is shown): now set only when the buttons changed.
+- `build.ps1`: RESULT 140 passed, 0 failed; renders unchanged.

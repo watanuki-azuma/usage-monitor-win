@@ -491,7 +491,10 @@ fn update_rpg(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, now: 
         });
         bx -= 6;
     }
-    flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    // Only replace the buttons model when it changed: the flyout re-renders every second while shown.
+    if flyout.get_buttons().iter().ne(buttons.iter().cloned()) {
+        flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    }
 
     let mut raw_cards: Vec<(usize, &crate::core::contracts::ProviderSnapshot, Vec<LineData>, f32, f32, bool, bool)> = Vec::new();
     let mut heights = Vec::new();
@@ -864,7 +867,10 @@ fn update_fluent(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, no
         });
         bx -= 6;
     }
-    flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    // Only replace the buttons model when it changed: the flyout re-renders every second while shown.
+    if flyout.get_buttons().iter().ne(buttons.iter().cloned()) {
+        flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    }
 
     let mut raw_cards: Vec<(usize, &crate::core::contracts::ProviderSnapshot, Vec<LineData>, i32)> = Vec::new();
     let mut heights = Vec::new();
@@ -1204,7 +1210,10 @@ fn update_terminal(chips: &Chips, flyout: &Flyout, snapshot: Option<&Snapshot>, 
         });
         bx -= 5;
     }
-    flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    // Only replace the buttons model when it changed: the flyout re-renders every second while shown.
+    if flyout.get_buttons().iter().ne(buttons.iter().cloned()) {
+        flyout.set_buttons(Rc::new(VecModel::from(buttons)).into());
+    }
 
     let mut any_alert = false;
     let mut any_stale = false;

@@ -485,7 +485,6 @@ impl AppController {
                     if self.config.skin != next {
                         self.config.skin = next.into();
                         self.render();
-                        self.place();
                         let scale = win::dpi::scale();
                         if !self.chips_hwnd.is_null() {
                             let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
