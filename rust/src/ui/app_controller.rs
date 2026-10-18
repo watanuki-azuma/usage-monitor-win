@@ -174,106 +174,357 @@ pub fn run(dir:PathBuf,no_poll:bool,single:SingleInstance)->Result<(),Box<dyn st
     let _=io_worker.join();result.map_err(Into::into)
 }
 impl AppController {
-    fn persist(&self){let _=self.worker.send(Work::Config(self.config.clone()));}
+    fn persist(&self) {
+        let _ = self.worker.send(Work::Config(self.config.clone()));
+    }
     fn render(&mut self) {
-        let old=(self.chips.get_content_width(),self.flyout.get_content_height());
-        render_test::update(&self.chips,&self.flyout,self.current.as_ref(),Utc::now());
-        self.flyout.set_interval(self.config.poll_interval_secs);self.flyout.set_docked(self.config.flyout_docked);self.flyout.set_pinned(self.config.flyout_pinned);
-        let scale=win::dpi::scale();
-        if old.0!=self.chips.get_content_width() {
-            if self.config.chips_docked || self.chips_hwnd.is_null() {self.place_chips();}
-            else {
-                self.chips_rect.w=(self.chips.get_content_width()*scale).round() as i32;
-                taskbar::move_to(self.chips_hwnd,self.chips_rect);
-                window_style::round(self.chips_hwnd,self.chips_rect.w,self.chips_rect.h,(6.*scale).round() as i32);
+        let old = (
+            self.chips.get_content_width(),
+            self.chips.get_content_height(),
+            self.flyout.get_content_width(),
+            self.flyout.get_content_height(),
+        );
+        let skin = super::skins::component_skin(Some(&self.config.skin));
+        self.chips.set_skin(skin.into());
+        self.flyout.set_skin(skin.into());
+        self.flyout.set_interval(self.config.poll_interval_secs);
+        self.flyout.set_docked(self.config.flyout_docked);
+        self.flyout.set_pinned(self.config.flyout_pinned);
+        render_test::update(&self.chips, &self.flyout, self.current.as_ref(), Utc::now());
+        let scale = win::dpi::scale();
+        if old.0 != self.chips.get_content_width() || old.1 != self.chips.get_content_height() {
+            if self.config.chips_docked || self.chips_hwnd.is_null() {
+                self.place_chips();
+            } else {
+                self.chips_rect.w = (self.chips.get_content_width() * scale).round() as i32;
+                self.chips_rect.h = (self.chips.get_content_height() * scale).round() as i32;
+                taskbar::move_to(self.chips_hwnd, self.chips_rect);
+                let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
+                window_style::round(self.chips_hwnd, self.chips_rect.w, self.chips_rect.h, cr);
             }
         }
-        if old.1!=self.flyout.get_content_height() {
-            if self.config.flyout_docked || self.flyout_hwnd.is_null() {self.place_flyout();}
-            else if let Some(mut p)=taskbar::rect(self.flyout_hwnd) {
-                p.h=(self.flyout.get_content_height()*scale).round() as i32;
-                p=math::clamp(p,taskbar::monitor(p.x,p.y,true));
-                self.move_flyout(p,scale);
+        if old.2 != self.flyout.get_content_width() || old.3 != self.flyout.get_content_height() {
+            if self.config.flyout_docked || self.flyout_hwnd.is_null() {
+                self.place_flyout();
+            } else if let Some(mut p) = taskbar::rect(self.flyout_hwnd) {
+                p.w = (self.flyout.get_content_width() * scale).round() as i32;
+                p.h = (self.flyout.get_content_height() * scale).round() as i32;
+                p = math::clamp(p, taskbar::monitor(p.x, p.y, true));
+                self.move_flyout(p, scale);
             }
         }
     }
-    fn begin_setup(&self) {self.setup.start(slint::TimerMode::Repeated,Duration::from_millis(50),||with_app(|a|a.setup_windows()));}
+    fn begin_setup(&self) {
+        self.setup.start(slint::TimerMode::Repeated, Duration::from_millis(50), || {
+            with_app(|a| a.setup_windows())
+        });
+    }
     fn setup_windows(&mut self) {
-        let c=window_style::find("UsageMonitor-Rust-Chips");let f=window_style::find("UsageMonitor-Rust-Flyout");
-        let mut done=true;
-        if self.chips.window().is_visible(){if c.is_null(){done=false;}else if c!=self.chips_hwnd{self.chips_hwnd=c;window_style::tool(c,true);}}
-        if self.flyout.window().is_visible(){if f.is_null(){done=false;}else if f!=self.flyout_hwnd{self.flyout_hwnd=f;window_style::tool(f,false);unsafe{windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(f);}}}
-        self.place();if done{self.setup.stop();}
+        let c = window_style::find("UsageMonitor-Rust-Chips");
+        let f = window_style::find("UsageMonitor-Rust-Flyout");
+        let mut done = true;
+        if self.chips.window().is_visible() {
+            if c.is_null() {
+                done = false;
+            } else if c != self.chips_hwnd {
+                self.chips_hwnd = c;
+                window_style::tool(c, true);
+            }
+        }
+        if self.flyout.window().is_visible() {
+            if f.is_null() {
+                done = false;
+            } else if f != self.flyout_hwnd {
+                self.flyout_hwnd = f;
+                window_style::tool(f, false);
+                unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(f);
+                }
+            }
+        }
+        self.place();
+        if done {
+            self.setup.stop();
+        }
     }
     fn place(&mut self) {
         self.place_chips();
         self.place_flyout();
     }
     fn place_chips(&mut self) {
-        let s=win::dpi::scale();
-        let (w,h)=((self.chips.get_content_width()*s).round() as i32,(30.*s).round() as i32);
-        self.chips_rect=if self.config.chips_docked {
-            taskbar::dock(w,h,(4.*s).round() as i32)
-        }else{
-            let stored=self.config.chips_x.is_some()&&self.config.chips_y.is_some();
-            let (x,y)=if stored {(self.config.chips_x.unwrap(),self.config.chips_y.unwrap())}else{(0,0)};
-            let area=taskbar::monitor(x,y,true);
-            let target=if stored {RectI::new(x,y,w,h)}else{RectI::new(area.x+area.w-w-(12.*s).round() as i32,area.y+area.h-h-(8.*s).round() as i32,w,h)};
-            let p=math::clamp(target,area);
-            if !stored||!taskbar::point_on_screen(x,y) {
-                self.config.chips_x=Some(p.x);self.config.chips_y=Some(p.y);self.persist();
+        let s = win::dpi::scale();
+        let (w, h) = (
+            (self.chips.get_content_width() * s).round() as i32,
+            (self.chips.get_content_height().max(30.0) * s).round() as i32,
+        );
+        self.chips_rect = if self.config.chips_docked {
+            taskbar::dock(w, h, (4.0 * s).round() as i32)
+        } else {
+            let stored = self.config.chips_x.is_some() && self.config.chips_y.is_some();
+            let (x, y) = if stored {
+                (self.config.chips_x.unwrap(), self.config.chips_y.unwrap())
+            } else {
+                (0, 0)
+            };
+            let area = taskbar::monitor(x, y, true);
+            let target = if stored {
+                RectI::new(x, y, w, h)
+            } else {
+                RectI::new(
+                    area.x + area.w - w - (12.0 * s).round() as i32,
+                    area.y + area.h - h - (8.0 * s).round() as i32,
+                    w,
+                    h,
+                )
+            };
+            let p = math::clamp(target, area);
+            if !stored || !taskbar::point_on_screen(x, y) {
+                self.config.chips_x = Some(p.x);
+                self.config.chips_y = Some(p.y);
+                self.persist();
             }
             p
         };
-        if taskbar::rect(self.chips_hwnd)!=Some(self.chips_rect) {taskbar::move_to(self.chips_hwnd,self.chips_rect);window_style::round(self.chips_hwnd,w,h,(6.*s).round() as i32);}
-        if self.config.chips_docked && (self.config.chips_dock_x!=Some(self.chips_rect.x)||self.config.chips_dock_y!=Some(self.chips_rect.y)) {self.config.chips_dock_x=Some(self.chips_rect.x);self.config.chips_dock_y=Some(self.chips_rect.y);self.persist();}
+        let cr = (super::skins::chips_radius(Some(&self.config.skin)) * s).round() as i32;
+        if taskbar::rect(self.chips_hwnd) != Some(self.chips_rect) {
+            taskbar::move_to(self.chips_hwnd, self.chips_rect);
+            window_style::round(self.chips_hwnd, w, h, cr);
+        }
+        if self.config.chips_docked
+            && (self.config.chips_dock_x != Some(self.chips_rect.x)
+                || self.config.chips_dock_y != Some(self.chips_rect.y))
+        {
+            self.config.chips_dock_x = Some(self.chips_rect.x);
+            self.config.chips_dock_y = Some(self.chips_rect.y);
+            self.persist();
+        }
     }
     fn place_flyout(&self) {
-        let s=win::dpi::scale();
-        let c=self.chips_rect;let (fw,fh)=((640.*s).round() as i32,(self.flyout.get_content_height()*s).round() as i32);
-        let p=if !self.config.flyout_docked && self.config.flyout_pinned && self.config.flyout_x.is_some() && self.config.flyout_y.is_some(){let (x,y)=(self.config.flyout_x.unwrap(),self.config.flyout_y.unwrap());math::clamp(RectI::new(x,y,fw,fh),taskbar::monitor(x,y,true))}else{math::flyout_anchor(c,taskbar::monitor(c.x+c.w/2,c.y+c.h/2,true),fw,fh,(8.*s).round() as i32)};
-        self.move_flyout(p,s);
+        let s = win::dpi::scale();
+        let c = self.chips_rect;
+        let (fw, fh) = (
+            (self.flyout.get_content_width() * s).round() as i32,
+            (self.flyout.get_content_height() * s).round() as i32,
+        );
+        let p = if !self.config.flyout_docked
+            && self.config.flyout_pinned
+            && self.config.flyout_x.is_some()
+            && self.config.flyout_y.is_some()
+        {
+            let (x, y) = (self.config.flyout_x.unwrap(), self.config.flyout_y.unwrap());
+            math::clamp(RectI::new(x, y, fw, fh), taskbar::monitor(x, y, true))
+        } else {
+            math::flyout_anchor(
+                c,
+                taskbar::monitor(c.x + c.w / 2, c.y + c.h / 2, true),
+                fw,
+                fh,
+                (8.0 * s).round() as i32,
+            )
+        };
+        self.move_flyout(p, s);
     }
-    fn move_flyout(&self,p:RectI,scale:f32) {
-        if taskbar::rect(self.flyout_hwnd)!=Some(p) {
-            taskbar::move_to(self.flyout_hwnd,p);
-            window_style::round(self.flyout_hwnd,p.w,p.h,(12.*scale).round() as i32);
+    fn move_flyout(&self, p: RectI, scale: f32) {
+        if taskbar::rect(self.flyout_hwnd) != Some(p) {
+            taskbar::move_to(self.flyout_hwnd, p);
+            let fr = (super::skins::flyout_radius(Some(&self.config.skin)) * scale).round() as i32;
+            window_style::round(self.flyout_hwnd, p.w, p.h, fr);
         }
     }
-    fn show(&mut self){self.render();let _=self.flyout.show();self.flyout_shown=Instant::now();self.flyout_hwnd=std::ptr::null_mut();self.begin_setup();}
+    fn show(&mut self) {
+        self.render();
+        let _ = self.flyout.show();
+        self.flyout_shown = Instant::now();
+        self.flyout_hwnd = std::ptr::null_mut();
+        self.begin_setup();
+    }
     fn tick(&mut self) {
-        if self.single.activated(){self.show();}
-        let geometry=taskbar::geometry();
-        if self.last_geometry!=Some(geometry){
-            self.last_geometry=Some(geometry);
-            if self.config.chips_docked {self.place_chips();}
-            if self.config.flyout_docked&&self.flyout.window().is_visible(){self.place_flyout();}
+        if self.single.activated() {
+            self.show();
         }
-        if self.config.chips_docked&&!self.config.chips_hidden {window_style::topmost(self.chips_hwnd);}
-        if let Some(s)=&self.current {let (next,changed)=models::apply_local_resets(s,Utc::now());if changed{let _=self.worker.send(Work::Snapshot(Arc::new(next.clone()),false));self.current=Some(next);let _=self.worker.send(Work::Refresh);self.render();}else if self.flyout.window().is_visible(){self.render();}}
+        let geometry = taskbar::geometry();
+        if self.last_geometry != Some(geometry) {
+            self.last_geometry = Some(geometry);
+            if self.config.chips_docked {
+                self.place_chips();
+            }
+            if self.config.flyout_docked && self.flyout.window().is_visible() {
+                self.place_flyout();
+            }
+        }
+        if self.config.chips_docked && !self.config.chips_hidden {
+            window_style::topmost(self.chips_hwnd);
+        }
+        if let Some(s) = &self.current {
+            let (next, changed) = models::apply_local_resets(s, Utc::now());
+            if changed {
+                let _ = self.worker.send(Work::Snapshot(Arc::new(next.clone()), false));
+                self.current = Some(next);
+                let _ = self.worker.send(Work::Refresh);
+                self.render();
+            } else if self.flyout.window().is_visible() {
+                self.render();
+            }
+        }
     }
-    fn action(&mut self,action:&str) {
+    fn action(&mut self, action: &str) {
         match action {
-            "quit"=>{self.persist();let _=slint::quit_event_loop();},
-            "refresh"=>{let _=self.worker.send(Work::Refresh);},
-            "show"=>self.show(),
-            "flyout"=>{if self.flyout.window().is_visible()&&!self.config.flyout_docked{let _=self.flyout.hide();}else{self.show();}},
-            "tray-flyout"=>{if self.flyout.window().is_visible(){if !self.config.flyout_docked{let _=self.flyout.hide();}}else{self.show();}},
-            "menu-flyout"=>{if self.flyout.window().is_visible(){let _=self.flyout.hide();}else{self.show();}},
-            "escape"=>{let _=self.flyout.hide();},
-            "deactivate"=>{if !self.menu_open {slint::Timer::single_shot(Duration::from_millis(180),||dispatch("blur".into()));}},
-            "blur"=>{if !self.config.flyout_pinned&&!self.config.flyout_docked&&!self.menu_open&&self.flyout_shown.elapsed()>=Duration::from_millis(180){unsafe{if !self.flyout_hwnd.is_null()&&windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow()!=self.flyout_hwnd{let _=self.flyout.hide();}}}},
-            "chips"=>{self.config.chips_hidden=!self.config.chips_hidden;if self.config.chips_hidden{let _=self.chips.hide();}else{self.chips_hwnd=std::ptr::null_mut();let _=self.chips.show();self.begin_setup();}self.persist();},
-            "chips-dock"=>{self.config.chips_docked=!self.config.chips_docked;if !self.config.chips_docked{self.config.chips_x=Some(self.chips_rect.x);self.config.chips_y=Some(self.chips_rect.y);}else{self.place_chips();}self.persist();},
-            "pin"=>{self.config.flyout_pinned=!self.config.flyout_pinned;if !self.config.flyout_pinned{self.config.flyout_docked=false;}self.render();self.persist();},
-            "flyout-dock"|"menu-flyout-dock"=>{self.config.flyout_docked=!self.config.flyout_docked;if self.config.flyout_docked{self.config.flyout_pinned=true;}else if let Some(p)=taskbar::rect(self.flyout_hwnd){self.config.flyout_x=Some(p.x);self.config.flyout_y=Some(p.y);}self.place();self.render();self.persist();if action=="menu-flyout-dock"&&self.config.flyout_docked{self.show();}},
-            "autostart"=>{self.config.autostart=!self.config.autostart;let _=self.worker.send(Work::Autostart(self.config.clone()));},
-            "explorer"=>{if let Some(t)=&self.tray{t.add();}self.last_geometry=None;},
-            "display"=>self.last_geometry=None,
-            _=>{
-                if let Some(s)=action.strip_prefix("skin:"){self.config.skin=super::skins::normalize_skin(Some(s)).into();self.persist();}
-                if let Some(s)=action.strip_prefix("interval:"){for command in interval_commands(&mut self.config,s){let _=self.worker.send(command);}self.render();}
-                if let Some(id)=action.strip_prefix("usage:"){let url=match id{"claude"=>"https://claude.ai/settings/usage","codex"=>"https://chatgpt.com/codex/settings/usage","gemini"=>"https://antigravity.google","grok"=>"https://grok.com",_=>return};let url=url.to_string();std::thread::spawn(move||unsafe{windows_sys::Win32::UI::Shell::ShellExecuteW(std::ptr::null_mut(),win::wide("open").as_ptr(),win::wide(&url).as_ptr(),std::ptr::null(),std::ptr::null(),1);});}
+            "quit" => {
+                self.persist();
+                let _ = slint::quit_event_loop();
+            }
+            "refresh" => {
+                let _ = self.worker.send(Work::Refresh);
+            }
+            "show" => self.show(),
+            "flyout" => {
+                if self.flyout.window().is_visible() && !self.config.flyout_docked {
+                    let _ = self.flyout.hide();
+                } else {
+                    self.show();
+                }
+            }
+            "tray-flyout" => {
+                if self.flyout.window().is_visible() {
+                    if !self.config.flyout_docked {
+                        let _ = self.flyout.hide();
+                    }
+                } else {
+                    self.show();
+                }
+            }
+            "menu-flyout" => {
+                if self.flyout.window().is_visible() {
+                    let _ = self.flyout.hide();
+                } else {
+                    self.show();
+                }
+            }
+            "escape" => {
+                let _ = self.flyout.hide();
+            }
+            "deactivate" => {
+                if !self.menu_open {
+                    slint::Timer::single_shot(Duration::from_millis(180), || dispatch("blur".into()));
+                }
+            }
+            "blur" => {
+                if !self.config.flyout_pinned
+                    && !self.config.flyout_docked
+                    && !self.menu_open
+                    && self.flyout_shown.elapsed() >= Duration::from_millis(180)
+                {
+                    unsafe {
+                        if !self.flyout_hwnd.is_null()
+                            && windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow()
+                                != self.flyout_hwnd
+                        {
+                            let _ = self.flyout.hide();
+                        }
+                    }
+                }
+            }
+            "chips" => {
+                self.config.chips_hidden = !self.config.chips_hidden;
+                if self.config.chips_hidden {
+                    let _ = self.chips.hide();
+                } else {
+                    self.chips_hwnd = std::ptr::null_mut();
+                    let _ = self.chips.show();
+                    self.begin_setup();
+                }
+                self.persist();
+            }
+            "chips-dock" => {
+                self.config.chips_docked = !self.config.chips_docked;
+                if !self.config.chips_docked {
+                    self.config.chips_x = Some(self.chips_rect.x);
+                    self.config.chips_y = Some(self.chips_rect.y);
+                } else {
+                    self.place_chips();
+                }
+                self.persist();
+            }
+            "pin" => {
+                self.config.flyout_pinned = !self.config.flyout_pinned;
+                if !self.config.flyout_pinned {
+                    self.config.flyout_docked = false;
+                }
+                self.render();
+                self.persist();
+            }
+            "flyout-dock" | "menu-flyout-dock" => {
+                self.config.flyout_docked = !self.config.flyout_docked;
+                if self.config.flyout_docked {
+                    self.config.flyout_pinned = true;
+                } else if let Some(p) = taskbar::rect(self.flyout_hwnd) {
+                    self.config.flyout_x = Some(p.x);
+                    self.config.flyout_y = Some(p.y);
+                }
+                self.place();
+                self.render();
+                self.persist();
+                if action == "menu-flyout-dock" && self.config.flyout_docked {
+                    self.show();
+                }
+            }
+            "autostart" => {
+                self.config.autostart = !self.config.autostart;
+                let _ = self.worker.send(Work::Autostart(self.config.clone()));
+            }
+            "explorer" => {
+                if let Some(t) = &self.tray {
+                    t.add();
+                }
+                self.last_geometry = None;
+            }
+            "display" => self.last_geometry = None,
+            _ => {
+                if let Some(s) = action.strip_prefix("skin:") {
+                    let next = super::skins::normalize_skin(Some(s));
+                    if self.config.skin != next {
+                        self.config.skin = next.into();
+                        self.render();
+                        let scale = win::dpi::scale();
+                        if !self.chips_hwnd.is_null() {
+                            let cr = (super::skins::chips_radius(Some(&self.config.skin)) * scale).round() as i32;
+                            window_style::round(self.chips_hwnd, self.chips_rect.w, self.chips_rect.h, cr);
+                        }
+                        if !self.flyout_hwnd.is_null() {
+                            if let Some(p) = taskbar::rect(self.flyout_hwnd) {
+                                let fr = (super::skins::flyout_radius(Some(&self.config.skin)) * scale).round() as i32;
+                                window_style::round(self.flyout_hwnd, p.w, p.h, fr);
+                            }
+                        }
+                    }
+                    self.persist();
+                }
+                if let Some(s) = action.strip_prefix("interval:") {
+                    for command in interval_commands(&mut self.config, s) {
+                        let _ = self.worker.send(command);
+                    }
+                    self.render();
+                }
+                if let Some(id) = action.strip_prefix("usage:") {
+                    let url = match id {
+                        "claude" => "https://claude.ai/settings/usage",
+                        "codex" => "https://chatgpt.com/codex/settings/usage",
+                        "gemini" => "https://antigravity.google",
+                        "grok" => "https://grok.com",
+                        _ => return,
+                    };
+                    let url = url.to_string();
+                    std::thread::spawn(move || unsafe {
+                        windows_sys::Win32::UI::Shell::ShellExecuteW(
+                            std::ptr::null_mut(),
+                            win::wide("open").as_ptr(),
+                            win::wide(&url).as_ptr(),
+                            std::ptr::null(),
+                            std::ptr::null(),
+                            1,
+                        );
+                    });
+                }
             }
         }
     }

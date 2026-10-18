@@ -1,0 +1,662 @@
+import { ChipData, CardData, LineData, HeaderButtonData } from "../common.slint";
+
+component ShadowText inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: #ffffff;
+    in property <string> font-family: "Segoe UI";
+    in property <length> font-size: 11px;
+    in property <int> font-weight: 700;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    in property <TextOverflow> overflow: elide;
+    background: transparent;
+    Text {
+        x: 1px;
+        y: 1px;
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: #000000;
+        font-family: root.font-family;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+    }
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.ink;
+        font-family: root.font-family;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+    }
+}
+
+component RpgBadge inherits Rectangle {
+    in property <string> initial;
+    in property <color> accent;
+    in property <color> border-col: #ffd700;
+    in property <length> radius: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: root.radius;
+    background: root.accent;
+    border-width: 1px;
+    border-color: root.border-col;
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.initial;
+        color: #04081c;
+        font-family: "Bahnschrift";
+        font-size: 9px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component RpgHeaderButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    callback context-menu;
+    height: 22px;
+    border-radius: 4px;
+    background: root.active
+        ? #241c08
+        : touch.pressed
+            ? #18245a
+            : touch.has-hover
+                ? #101e4b
+                : #081030;
+    border-width: 1px;
+    border-color: root.active ? #ffd700 : #ffffff;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: 10px;
+        border-radius: 3px;
+        background: root.active
+            ? #483812
+            : touch.pressed
+                ? #3048a0
+                : touch.has-hover
+                    ? #203c8c
+                    : #142660;
+    }
+    Rectangle {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        border-radius: 2px;
+        background: transparent;
+        border-width: 1px;
+        border-color: root.active ? #785f19 : (touch.has-hover || touch.pressed) ? #64a0f0 : #1e326e;
+    }
+    Rectangle {
+        x: 2px;
+        y: 1px;
+        width: parent.width - 4px;
+        height: 1px;
+        background: #ffffff28;
+    }
+    ShadowText {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        ink: root.active ? #ffd700 : (touch.has-hover || touch.pressed) ? #ffffff : #f0f5ff;
+        font-family: "Segoe UI";
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.context-menu();
+            }
+        }
+    }
+}
+
+export component RpgChips inherits Rectangle {
+    in property <[ChipData]> chips;
+    background: #04081c;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 6px;
+        background: #04081c;
+        border-width: 1px;
+        border-color: #ffffff;
+        Rectangle {
+            x: 3px;
+            y: 3px;
+            width: parent.width - 6px;
+            height: parent.height - 6px;
+            border-radius: 4px;
+            background: @linear-gradient(180deg, #0e1c54 0%, #04081c 100%);
+            border-width: 1px;
+            border-color: #e6f0ff;
+        }
+        for chip in root.chips: Rectangle {
+            x: chip.px * 1px;
+            y: 5px;
+            width: chip.pw * 1px;
+            height: 20px;
+            border-radius: 3px;
+            background: chip.bg-bottom;
+            border-width: chip.stale ? 0px : 1px;
+            border-color: chip.outline;
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                background: @linear-gradient(180deg, chip.bg-top 0%, chip.bg-bottom 100%);
+            }
+            Rectangle {
+                x: 2px;
+                y: 1px;
+                width: parent.width - 4px;
+                height: 1px;
+                background: #ffffff32;
+            }
+            if chip.stale: Path {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                stroke: chip.outline;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: chip.pw;
+                viewbox-height: 20;
+                fill: transparent;
+                stroke-width: 1px;
+                commands: chip.dash-path;
+            }
+            RpgBadge {
+                x: 7px;
+                y: 3px;
+                initial: chip.initial;
+                accent: chip.accent;
+                border-col: chip.badge-border;
+                radius: 2px;
+            }
+            ShadowText {
+                x: 25px;
+                y: 0px;
+                width: parent.width - 26px;
+                height: parent.height;
+                text: chip.text;
+                ink: chip.ink;
+                font-family: "Consolas";
+                font-size: 11px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component RpgFlyout inherits Rectangle {
+    in property <[CardData]> cards;
+    in property <[HeaderButtonData]> buttons;
+    in property <bool> docked;
+    in property <bool> pinned;
+    in property <int> interval: 5;
+    callback action(string);
+    callback drag(float, float, int);
+    background: #04081c;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 12px;
+        background: #04081c;
+        border-width: 1px;
+        border-color: #ffffff;
+        Rectangle {
+            x: 3px;
+            y: 3px;
+            width: parent.width - 6px;
+            height: parent.height - 6px;
+            border-radius: 9px;
+            background: @linear-gradient(180deg, #0e1c54 0%, #04081c 100%);
+            border-width: 1px;
+            border-color: #e6f0ff;
+        }
+    }
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.action("menu");
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 0);
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 2);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 1);
+            }
+        }
+    }
+    ShadowText {
+        x: 13px;
+        y: 13px;
+        width: 380px;
+        height: 28px;
+        text: "⚔ PARTY STATUS · USAGE MONITOR ⚔";
+        ink: #ffd700;
+        font-family: "Segoe UI";
+        font-size: 12px;
+        font-weight: 700;
+        vertical-alignment: center;
+    }
+    for btn in root.buttons: RpgHeaderButton {
+        x: btn.px * 1px;
+        y: btn.py * 1px;
+        width: btn.pw * 1px;
+        height: btn.ph * 1px;
+        label: btn.label;
+        active: btn.active;
+        clicked => { root.action(btn.action); }
+        context-menu => { root.action("menu"); }
+    }
+    for card in root.cards: Rectangle {
+        x: card.px * 1px;
+        y: card.py * 1px;
+        width: card.pw * 1px;
+        height: card.ph * 1px;
+        background: @linear-gradient(180deg, card.bg-top 0%, card.bg-bottom 100%);
+        border-width: 1px;
+        border-color: #ffffff;
+        Rectangle {
+            x: 3px;
+            y: 3px;
+            width: parent.width - 6px;
+            height: parent.height - 6px;
+            background: transparent;
+            border-width: 1px;
+            border-color: #e6f0ff;
+        }
+        if card.show-cursor: Rectangle {
+            x: 13px;
+            y: 12px;
+            width: 14px;
+            height: 10px;
+            background: transparent;
+            // Shadow
+            Path {
+                x: 1px;
+                y: 1px;
+                width: 13px;
+                height: 9px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 13;
+                viewbox-height: 9;
+                fill: #000000;
+                commands: "M0 2 L2 2 L2 7 L0 7 Z M3 1 L8 1 L8 2 L13 2 L13 4 L9 4 L9 8 L3 8 Z";
+            }
+            // White retro pointing hand cursor
+            Path {
+                x: 0px;
+                y: 0px;
+                width: 13px;
+                height: 9px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 13;
+                viewbox-height: 9;
+                fill: #ffffff;
+                commands: "M0 2 L2 2 L2 7 L0 7 Z M3 1 L8 1 L8 2 L13 2 L13 4 L9 4 L9 8 L3 8 Z";
+            }
+        }
+        RpgBadge {
+            x: (12 + card.cursor-indent) * 1px;
+            y: 9px;
+            initial: card.initial;
+            accent: card.accent;
+            border-col: card.badge-border;
+            radius: 3px;
+        }
+        ShadowText {
+            x: (30 + card.cursor-indent) * 1px;
+            y: 8px;
+            width: 170px;
+            height: 16px;
+            text: card.name;
+            ink: card.name-color;
+            font-family: "Segoe UI";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        if card.plan-is-badge: Rectangle {
+            x: (card.pw - 12 - card.plan-w) * 1px;
+            y: 9px;
+            width: card.plan-w * 1px;
+            height: 14px;
+            background: card.plan-bg-top;
+            border-width: 1px;
+            border-color: card.plan-border;
+            Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: card.plan;
+                color: card.plan-color;
+                font-family: "Bahnschrift";
+                font-size: 9px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        if !card.plan-is-badge && card.plan != "": ShadowText {
+            x: 190px;
+            y: 8px;
+            width: (card.pw - 202) * 1px;
+            height: 16px;
+            text: card.plan;
+            ink: #ffd700;
+            font-family: "Segoe UI";
+            font-size: 10px;
+            font-weight: 700;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        for line in card.lines: Rectangle {
+            x: 12px;
+            y: line.py * 1px;
+            width: 314px;
+            height: line.ph * 1px;
+            if line.kind == 0 || line.kind == 5: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                ShadowText {
+                    x: 0px;
+                    y: 0px;
+                    width: card.label-width * 1px;
+                    height: parent.height;
+                    text: line.label;
+                    ink: line.label-color;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                ShadowText {
+                    x: (line.meter-x - 20) * 1px;
+                    y: 2px;
+                    width: 16px;
+                    height: 12px;
+                    text: line.stat-tag;
+                    ink: line.tag-color;
+                    font-family: "Bahnschrift";
+                    font-size: 10px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    x: line.meter-x * 1px;
+                    y: 4px;
+                    width: line.meter-w * 1px;
+                    height: 8px;
+                    background: #080e24;
+                    border-width: 1px;
+                    border-color: line.track-border;
+                    Rectangle {
+                        x: 1px;
+                        y: 1px;
+                        width: parent.width - 2px;
+                        height: 1px;
+                        background: #0000005a;
+                    }
+                    Rectangle {
+                        x: 0px;
+                        y: 8px;
+                        width: parent.width;
+                        height: 1px;
+                        background: #2850a0;
+                    }
+                    if line.fill-w > 0: Rectangle {
+                        x: 1px;
+                        y: 1px;
+                        width: line.fill-w * 1px;
+                        height: 6px;
+                        background: @linear-gradient(180deg, line.bar-top 0%, line.bar-bottom 100%);
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: 1px;
+                            background: #ffffffb4;
+                        }
+                        Rectangle {
+                            x: 0px;
+                            y: 5px;
+                            width: parent.width;
+                            height: 1px;
+                            background: #0000005a;
+                        }
+                        if line.fill-w > 2: Rectangle {
+                            x: parent.width - 1px;
+                            y: 0px;
+                            width: 1px;
+                            height: 6px;
+                            background: #ffffffeb;
+                        }
+                    }
+                }
+                ShadowText {
+                    x: line.pct-x * 1px;
+                    y: 0px;
+                    width: line.pct-width * 1px;
+                    height: parent.height;
+                    text: line.pct;
+                    ink: line.pct-color;
+                    font-family: "Consolas";
+                    font-size: 11px;
+                    font-weight: 700;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                ShadowText {
+                    x: line.eta-x * 1px;
+                    y: 0px;
+                    width: card.eta-width * 1px;
+                    height: parent.height;
+                    text: line.eta;
+                    ink: line.kind == 5 ? line.pct-color : #b9cdeb;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 4: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 38px;
+                    height: 13px;
+                    background: #402608;
+                    border-width: 1px;
+                    border-color: #f59e0b;
+                    Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        text: line.stat-tag;
+                        color: #ffd228;
+                        font-family: "Bahnschrift";
+                        font-size: 9px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                ShadowText {
+                    x: 44px;
+                    y: 0px;
+                    width: 270px;
+                    height: parent.height;
+                    text: line.text;
+                    ink: #ffd228;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 1 || line.kind == 6: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                Path {
+                    x: 2px;
+                    y: 5px;
+                    width: 6px;
+                    height: 6px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 6;
+                    viewbox-height: 6;
+                    fill: #000000;
+                    commands: "M3 0 L6 3 L3 6 L0 3 Z";
+                }
+                Path {
+                    x: 1px;
+                    y: 4px;
+                    width: 6px;
+                    height: 6px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 6;
+                    viewbox-height: 6;
+                    fill: line.label-color;
+                    commands: "M3 0 L6 3 L3 6 L0 3 Z";
+                }
+                ShadowText {
+                    x: 11px;
+                    y: 0px;
+                    width: parent.width - 11px;
+                    height: parent.height;
+                    text: line.text;
+                    ink: line.label-color;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 2: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                Path {
+                    x: 2px;
+                    y: 5px;
+                    width: 6px;
+                    height: 7px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 6;
+                    viewbox-height: 7;
+                    fill: #000000;
+                    commands: "M0 0 L6 3.5 L0 7 Z";
+                }
+                Path {
+                    x: 1px;
+                    y: 4px;
+                    width: 6px;
+                    height: 7px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 6;
+                    viewbox-height: 7;
+                    fill: line.label-color;
+                    commands: "M0 0 L6 3.5 L0 7 Z";
+                }
+                ShadowText {
+                    x: 11px;
+                    y: 0px;
+                    width: parent.width - 11px;
+                    height: parent.height;
+                    text: line.text;
+                    ink: line.label-color;
+                    font-family: "Segoe UI";
+                    font-size: 11px;
+                    font-weight: 400;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind == 3: ShadowText {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: line.text;
+                ink: line.label-color;
+                font-family: "Segoe UI";
+                font-size: 11px;
+                font-weight: 400;
+                vertical-alignment: center;
+            }
+        }
+        TouchArea {
+            clicked => { root.action("usage:" + card.id); }
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                    root.action("menu");
+                }
+            }
+        }
+    }
+    if root.docked: Rectangle {
+        x: 6px;
+        y: root.height - 2px;
+        width: root.width - 12px;
+        height: 2px;
+        background: #60a5fab4;
+    }
+}

@@ -1,0 +1,553 @@
+import { ChipData, CardData, LineData, HeaderButtonData } from "../common.slint";
+
+component TerminalBadge inherits Rectangle {
+    in property <string> initial;
+    in property <color> accent;
+    width: 14px;
+    height: 14px;
+    background: root.accent;
+    border-width: 1px;
+    border-color: #000000;
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.initial;
+        color: #0a0e0a;
+        font-family: "Consolas";
+        font-size: 9.5px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component TerminalHeaderButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    callback context-menu;
+    height: 22px;
+    background: root.active ? #ffb000 : touch.pressed ? #286432 : touch.has-hover ? #143c1e : #0e140f;
+    border-width: 1px;
+    border-color: root.active ? #000000 : (touch.has-hover || touch.pressed) ? #33ff55 : #2d733c;
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.active ? #0a0e0a : (touch.has-hover || touch.pressed) ? #33ff55 : #aaf0b9;
+        font-family: "Consolas";
+        font-size: 11px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.context-menu();
+            }
+        }
+    }
+}
+
+export component TerminalChips inherits Rectangle {
+    in property <[ChipData]> chips;
+    background: #0a0e0a;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 6px;
+        background: #0a0e0a;
+        border-width: 1px;
+        border-color: #2d733c;
+        for chip in root.chips: Rectangle {
+            x: chip.px * 1px;
+            y: 4px;
+            width: chip.pw * 1px;
+            height: 22px;
+            background: chip.bg-top;
+            border-width: chip.stale ? 0px : 1px;
+            border-color: chip.outline;
+            if chip.stale: Path {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                stroke: chip.outline;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: chip.pw;
+                viewbox-height: 22;
+                fill: transparent;
+                stroke-width: 1px;
+                commands: chip.dash-path;
+            }
+            TerminalBadge {
+                x: 7px;
+                y: 4px;
+                initial: chip.initial;
+                accent: chip.accent;
+            }
+            Text {
+                x: 25px;
+                y: 0px;
+                width: parent.width - 26px;
+                height: parent.height;
+                text: chip.text;
+                color: chip.ink;
+                font-family: "Consolas";
+                font-size: 11px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+        for i in 9: Rectangle {
+            x: 1px;
+            y: (i * 3 + 1) * 1px;
+            width: parent.width - 2px;
+            height: 1px;
+            background: #0000000e;
+        }
+    }
+}
+
+export component TerminalFlyout inherits Rectangle {
+    in property <[CardData]> cards;
+    in property <[HeaderButtonData]> buttons;
+    in property <bool> docked;
+    in property <bool> pinned;
+    in property <int> interval: 5;
+    in property <string> telemetry-left;
+    in property <float> telemetry-left-w;
+    in property <string> telemetry-center;
+    in property <float> telemetry-center-w;
+    in property <color> telemetry-color: #33ff55;
+    callback action(string);
+    callback drag(float, float, int);
+    background: #0a0e0a;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 1px;
+        height: parent.height - 1px;
+        border-radius: 10px;
+        background: #0a0e0a;
+        border-width: 1px;
+        border-color: #2d733c;
+        Rectangle {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            border-radius: 9px;
+            background: transparent;
+            border-width: 1px;
+            border-color: #12321a;
+        }
+    }
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.action("menu");
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 0);
+            }
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 2);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.drag(self.mouse-x / 1px, self.mouse-y / 1px, 1);
+            }
+        }
+    }
+    // Header shell prompt: usage@monitor:~$ watch -n N █  [pts/0]
+    HorizontalLayout {
+        x: 13px;
+        y: 13px;
+        height: 28px;
+        spacing: 0px;
+        alignment: start;
+        Text {
+            text: "usage@monitor";
+            color: #33ff55;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            text: ":";
+            color: #8ce69b;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "~";
+            color: #50c8ff;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            text: "$";
+            color: #8ce69b;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            text: " watch -n " + root.interval;
+            color: #ebfff0;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Rectangle { width: 3px; }
+        Rectangle {
+            y: 8px;
+            width: 7px;
+            height: 13px;
+            background: #33ff55;
+        }
+        Rectangle { width: 14px; }
+        Text {
+            text: "[pts/0]";
+            color: #4b825f;
+            font-family: "Consolas";
+            font-size: 10px;
+            font-weight: 400;
+            vertical-alignment: center;
+        }
+    }
+    // Telemetry separator line at y = 48
+    Rectangle {
+        x: 13px;
+        y: 45px;
+        width: 1px;
+        height: 7px;
+        background: #2d733c;
+    }
+    Rectangle {
+        x: 13px;
+        y: 48px;
+        width: 5px;
+        height: 1px;
+        background: #2d733c;
+    }
+    Rectangle {
+        x: 686px;
+        y: 45px;
+        width: 1px;
+        height: 7px;
+        background: #2d733c;
+    }
+    Rectangle {
+        x: 682px;
+        y: 48px;
+        width: 5px;
+        height: 1px;
+        background: #2d733c;
+    }
+    Rectangle {
+        x: 17px;
+        y: 48px;
+        width: 665px;
+        height: 1px;
+        background: #265f30;
+    }
+    Rectangle {
+        x: 23px;
+        y: 41px;
+        width: (root.telemetry-left-w + 6) * 1px;
+        height: 14px;
+        background: #0a0e0a;
+        Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: root.telemetry-left;
+            color: #4b825f;
+            font-family: "Consolas";
+            font-size: 10px;
+            font-weight: 400;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    Rectangle {
+        x: ((13 + 686 - root.telemetry-center-w) / 2 - 4) * 1px;
+        y: 41px;
+        width: (root.telemetry-center-w + 8) * 1px;
+        height: 14px;
+        background: #0a0e0a;
+        Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: root.telemetry-center;
+            color: root.telemetry-color;
+            font-family: "Consolas";
+            font-size: 10px;
+            font-weight: 400;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    for btn in root.buttons: TerminalHeaderButton {
+        x: btn.px * 1px;
+        y: btn.py * 1px;
+        width: btn.pw * 1px;
+        height: btn.ph * 1px;
+        label: btn.label;
+        active: btn.active;
+        clicked => { root.action(btn.action); }
+        context-menu => { root.action("menu"); }
+    }
+    for card in root.cards: Rectangle {
+        x: card.px * 1px;
+        y: card.py * 1px;
+        width: card.pw * 1px;
+        height: card.ph * 1px;
+        background: #0e140e;
+        border-width: 1px;
+        border-color: card.border-color;
+        // Card header background band
+        Rectangle {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: 26px;
+            background: card.head-bg;
+        }
+        // Left 2px brand accent stripe
+        Rectangle {
+            x: 1px;
+            y: 1px;
+            width: 2px;
+            height: parent.height - 2px;
+            background: card.accent;
+        }
+        // Divider line at y = 27
+        Rectangle {
+            x: 3px;
+            y: 27px;
+            width: parent.width - 4px;
+            height: 1px;
+            background: card.border-color;
+        }
+        // Left T-junction
+        Rectangle {
+            x: 3px;
+            y: 24px;
+            width: 1px;
+            height: 7px;
+            background: card.cross-color;
+        }
+        Rectangle {
+            x: 3px;
+            y: 27px;
+            width: 5px;
+            height: 1px;
+            background: card.cross-color;
+        }
+        // Right T-junction
+        Rectangle {
+            x: parent.width - 1px;
+            y: 24px;
+            width: 1px;
+            height: 7px;
+            background: card.cross-color;
+        }
+        Rectangle {
+            x: parent.width - 5px;
+            y: 27px;
+            width: 5px;
+            height: 1px;
+            background: card.cross-color;
+        }
+        // 4 Corner brackets
+        Rectangle { x: 0px; y: 0px; width: 8px; height: 1px; background: card.cross-color; }
+        Rectangle { x: 0px; y: 0px; width: 1px; height: 8px; background: card.cross-color; }
+        Rectangle { x: parent.width - 8px; y: 0px; width: 8px; height: 1px; background: card.cross-color; }
+        Rectangle { x: parent.width - 1px; y: 0px; width: 1px; height: 8px; background: card.cross-color; }
+        Rectangle { x: 0px; y: parent.height - 1px; width: 8px; height: 1px; background: card.cross-color; }
+        Rectangle { x: 0px; y: parent.height - 8px; width: 1px; height: 8px; background: card.cross-color; }
+        Rectangle { x: parent.width - 8px; y: parent.height - 1px; width: 8px; height: 1px; background: card.cross-color; }
+        Rectangle { x: parent.width - 1px; y: parent.height - 8px; width: 1px; height: 8px; background: card.cross-color; }
+        // Card header content
+        TerminalBadge {
+            x: 8px;
+            y: 9px;
+            initial: card.initial;
+            accent: card.accent;
+        }
+        Text {
+            x: 28px;
+            y: 8px;
+            width: 170px;
+            height: 16px;
+            text: card.name;
+            color: card.name-color;
+            font-family: "Consolas";
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        if card.plan != "": Text {
+            x: 185px;
+            y: 8px;
+            width: (card.pw - 193) * 1px;
+            height: 16px;
+            text: card.plan;
+            color: card.plan-color;
+            font-family: "Consolas";
+            font-size: 10.5px;
+            font-weight: 400;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        for line in card.lines: Rectangle {
+            x: 8px;
+            y: line.py * 1px;
+            width: 317px;
+            height: line.ph * 1px;
+            if line.kind == 0: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                Text {
+                    x: 0px;
+                    y: 0px;
+                    width: card.label-width * 1px;
+                    height: parent.height;
+                    text: line.label;
+                    color: line.label-color;
+                    font-family: "Consolas";
+                    font-size: 11px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                HorizontalLayout {
+                    x: line.meter-x * 1px;
+                    y: 0px;
+                    height: parent.height;
+                    spacing: 0px;
+                    alignment: start;
+                    Text {
+                        text: "[";
+                        color: line.bracket-color;
+                        font-family: "Consolas";
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    if line.ascii-filled != "": Text {
+                        text: line.ascii-filled;
+                        color: line.bar-top;
+                        font-family: "Consolas";
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    if line.ascii-empty != "": Text {
+                        text: line.ascii-empty;
+                        color: line.dot-color;
+                        font-family: "Consolas";
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "]";
+                        color: line.bracket-color;
+                        font-family: "Consolas";
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    x: line.pct-x * 1px;
+                    y: 0px;
+                    width: (line.pct-width + 2) * 1px;
+                    height: parent.height;
+                    text: line.pct;
+                    color: line.pct-color;
+                    font-family: "Consolas";
+                    font-size: 11px;
+                    font-weight: 700;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: line.eta-x * 1px;
+                    y: 0px;
+                    width: card.eta-width * 1px;
+                    height: parent.height;
+                    text: line.eta;
+                    color: #6eb482;
+                    font-family: "Consolas";
+                    font-size: 11px;
+                    font-weight: 400;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+            if line.kind != 0: Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: line.text;
+                color: line.label-color;
+                font-family: "Consolas";
+                font-size: line.kind == 4 ? 10px : 11px;
+                font-weight: 400;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        TouchArea {
+            clicked => { root.action("usage:" + card.id); }
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                    root.action("menu");
+                }
+            }
+        }
+    }
+    for i in 95: Rectangle {
+        x: 1px;
+        y: (i * 3 + 1) * 1px;
+        width: parent.width - 3px;
+        height: (i * 3 + 1) * 1px < root.height - 2px ? 1px : 0px;
+        background: #0000000e;
+    }
+    if root.docked: Rectangle {
+        x: 6px;
+        y: root.height - 2px;
+        width: root.width - 12px;
+        height: 2px;
+        background: #33ff55;
+    }
+}

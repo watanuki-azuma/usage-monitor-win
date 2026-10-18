@@ -20,6 +20,18 @@ pub fn for_provider(p: Option<&ProviderSnapshot>) -> ChipInfo {
         stale: p.is_some_and(|p| p.status.state == state::STALE),
     }
 }
+pub fn rpg_for_provider(p: Option<&ProviderSnapshot>) -> ChipInfo {
+    let mut base = for_provider(p);
+    let Some(w) = p.and_then(models::current_window) else {
+        return base;
+    };
+    let Some(used) = w.used_pct else {
+        return base;
+    };
+    let rem = w.remaining_pct.unwrap_or(100.0 - used).clamp(0.0, 100.0).round() as i64;
+    base.text = format!("{rem}/100");
+    base
+}
 pub fn key(s: Option<&Snapshot>) -> String {
     s.map(|s| s.providers.iter().map(|p| {
         let c = for_provider(Some(p));

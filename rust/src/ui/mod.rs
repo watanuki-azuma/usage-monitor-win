@@ -6,7 +6,7 @@ pub mod render_test;
 pub mod app_controller;
 
 slint::slint! {
-    export { Chips, Flyout, ChipData, CardData, LineData } from "ui/classic/app.slint";
+    export { Chips, Flyout, ChipData, CardData, LineData, HeaderButtonData } from "ui/classic/app.slint";
 }
 
 #[cfg(test)]

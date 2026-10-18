@@ -35,27 +35,97 @@ fn p(id:&str,state:&str,ws:&[(&str,f64)])->ProviderSnapshot{let mut p=ProviderSn
     assert_eq!(AppConfig::default().skin,"classic");for json in ["{}",r#"{"skin":"bogus"}"#,r#"{"skin":5}"#]{assert_eq!(AppConfig::parse(Some(json)).skin,"classic");}
     for id in SKIN_IDS{let mut c=AppConfig::default();c.skin=id.into();let json=c.to_json();assert!(json.contains("\"skin\""));assert_eq!(AppConfig::parse(Some(&json)).skin,id);}
 }
-#[test] fn test_registry_creates_every_skin_and_unknown_is_classic(){assert_eq!(super::skins::normalize_skin(Some("nope")),"classic");assert_eq!(super::skins::normalize_skin(None),"classic");assert_eq!(SKIN_IDS.len(),4);assert_eq!(super::skins::name_of(Some("rpg")),"RPG");for id in SKIN_IDS{assert_eq!(super::skins::component_skin(Some(id)),"classic");}}
-#[test] fn test_each_skin_measures_and_paints_chips_and_flyout(){
-    // One isolated software platform on this test thread; no native windows or real data paths.
-    let windows=super::render_test::install_headless().unwrap();
-    let mut s=Snapshot::new(Utc::now());s.providers=vec![p("claude",state::OK,&[(kind::FIVE_HOUR,10.),(kind::WEEKLY,40.)]),p("codex",state::OK,&[(kind::FIVE_HOUR,85.),(kind::WEEKLY,40.)]),p("gemini",state::OK,&[]),p("grok",state::OK,&[(kind::FIVE_HOUR,100.),(kind::WEEKLY,40.)])];
-    for (i,id) in SKIN_IDS.iter().enumerate(){assert_eq!(super::skins::component_skin(Some(id)),"classic");let c=super::Chips::new().unwrap();let f=super::Flyout::new().unwrap();super::render_test::update(&c,&f,Some(&s),Utc::now());for (index,width,height) in [(i*2,c.get_content_width(),30.),(i*2+1,640.,f.get_content_height())]{
-        for scale in [1.,1.5,2.] {
-            let slint::PhysicalSize {width:w,height:h}=super::render_test::physical_size(width,height,scale);
-            let window=&windows.borrow()[index];
-            let pixels=super::render_test::pixels(window,w,h,scale);
-            assert_eq!(window.scale_factor(),scale);
-            assert_eq!(pixels.len(),(w*h*3) as usize);assert!(pixels.chunks_exact(3).any(|p|p[0]>150));
-            // A card/chip near the right edge must move with the design scale, not clip.
-            let (x,y)=if index%2==0 {(width-8.,15.)}else{(620.,60.)};
-            let offset=(((y*scale) as u32*w+(x*scale) as u32)*3) as usize;
-            assert_ne!(&pixels[offset..offset+3],&[17,24,39]);
-        }
-    }}
+#[test]
+fn test_registry_creates_every_skin_and_unknown_is_classic() {
+    assert_eq!(super::skins::normalize_skin(Some("nope")), "classic");
+    assert_eq!(super::skins::normalize_skin(None), "classic");
+    assert_eq!(super::skins::component_skin(Some("nope")), "classic");
+    assert_eq!(super::skins::component_skin(None), "classic");
+    assert_eq!(SKIN_IDS.len(), 4);
+    assert_eq!(super::skins::name_of(Some("rpg")), "RPG");
+    assert_eq!(super::skins::name_of(Some("fluent")), "Fluent");
+    assert_eq!(super::skins::name_of(Some("terminal")), "Terminal");
+    for id in SKIN_IDS {
+        assert_eq!(super::skins::component_skin(Some(id)), id);
+    }
 }
-#[test] fn test_render_size_scales_and_rounds_like_theme() {
-    for (scale,w,h) in [(1.,640,263),(1.5,960,395),(2.,1280,526)] {
-        assert_eq!(super::render_test::physical_size(640.,263.,scale),slint::PhysicalSize::new(w,h));
+
+#[test]
+fn test_rpg_chips_show_remaining_while_colour_follows_used() {
+    // 10% used => 90/100 HP remaining, green.
+    let low = chip::rpg_for_provider(Some(&p("claude", state::OK, &[(kind::FIVE_HOUR, 10.0)])));
+    assert_eq!(low.text, "90/100");
+    assert_eq!(low.color_class, "green");
+
+    // 85% used => 15/100 HP remaining, red (alert threshold still keys off used%).
+    let high = chip::rpg_for_provider(Some(&p("claude", state::OK, &[(kind::FIVE_HOUR, 85.0)])));
+    assert_eq!(high.text, "15/100");
+    assert_eq!(high.color_class, "red");
+
+    // Missing window stays an em-dash / grey so the pill renders "KO".
+    let none = chip::rpg_for_provider(Some(&p("grok", state::LOGGED_OUT, &[])));
+    assert_eq!(none.text, "\u{2014}");
+    assert_eq!(none.color_class, "gray");
+}
+
+#[test]
+fn test_each_skin_measures_and_paints_chips_and_flyout() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let _ = std::fs::create_dir_all(root.join("target/release"));
+    for dll in ["libgcc_s_seh-1.dll", "libwinpthread-1.dll"] {
+        let _ = std::fs::copy(root.join(".tools").join(dll), root.join("target/release").join(dll));
+    }
+    // One isolated software platform on this test thread; no native windows or real data paths.
+    let windows = super::render_test::install_headless().unwrap();
+    let mut s = Snapshot::new(Utc::now());
+    s.providers = vec![
+        p("claude", state::OK, &[(kind::FIVE_HOUR, 10.0), (kind::WEEKLY, 40.0)]),
+        p("codex", state::OK, &[(kind::FIVE_HOUR, 85.0), (kind::WEEKLY, 40.0)]),
+        p("gemini", state::OK, &[]),
+        p("grok", state::OK, &[(kind::FIVE_HOUR, 100.0), (kind::WEEKLY, 40.0)]),
+    ];
+    for (i, id) in SKIN_IDS.iter().enumerate() {
+        assert_eq!(super::skins::component_skin(Some(id)), *id);
+        let c = super::Chips::new().unwrap();
+        let f = super::Flyout::new().unwrap();
+        c.set_skin((*id).into());
+        f.set_skin((*id).into());
+        super::render_test::update(&c, &f, Some(&s), Utc::now());
+        let cw = c.get_content_width();
+        let ch = c.get_content_height();
+        let fw = f.get_content_width();
+        let fh = f.get_content_height();
+        assert!(cw >= 96.0 && ch >= 20.0);
+        assert!(fw >= 640.0 && fh >= 120.0);
+        for (index, width, height) in [(i * 2, cw, ch), (i * 2 + 1, fw, fh)] {
+            for scale in [1.0, 1.5, 2.0] {
+                let slint::PhysicalSize { width: w, height: h } =
+                    super::render_test::physical_size(width, height, scale);
+                let window = &windows.borrow()[index];
+                let pixels = super::render_test::pixels(window, w, h, scale);
+                assert_eq!(window.scale_factor(), scale);
+                assert_eq!(pixels.len(), (w * h * 3) as usize);
+                assert!(pixels.chunks_exact(3).any(|p| p[0] > 150 || p[1] > 150 || p[2] > 150));
+                // A card/chip near the right edge must move with the design scale, not clip.
+                let (x, y) = if index % 2 == 0 {
+                    (width - 10.0, 15.0)
+                } else {
+                    (width - 25.0, 65.0)
+                };
+                let bg = &pixels[3..6];
+                let offset = (((y * scale) as u32 * w + (x * scale) as u32) * 3) as usize;
+                assert_ne!(&pixels[offset..offset + 3], bg);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_render_size_scales_and_rounds_like_theme() {
+    for (scale, w, h) in [(1.0, 640, 263), (1.5, 960, 395), (2.0, 1280, 526)] {
+        assert_eq!(
+            super::render_test::physical_size(640.0, 263.0, scale),
+            slint::PhysicalSize::new(w, h)
+        );
     }
 }
