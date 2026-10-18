@@ -113,7 +113,11 @@ pub fn install_headless() -> Result<Rc<RefCell<Vec<Rc<MinimalSoftwareWindow>>>>,
     let windows=Rc::new(RefCell::new(Vec::new()));
     slint::platform::set_platform(Box::new(Headless {windows:windows.clone()})).map_err(|e|slint::PlatformError::from(e.to_string()))?; Ok(windows)
 }
-pub fn pixels(window:&MinimalSoftwareWindow,w:u32,h:u32) -> Vec<u8> {
+pub fn physical_size(w:f32,h:f32,scale:f32)->slint::PhysicalSize {
+    slint::PhysicalSize::new((w*scale).round() as u32,(h*scale).round() as u32)
+}
+pub fn pixels(window:&MinimalSoftwareWindow,w:u32,h:u32,scale:f32) -> Vec<u8> {
+    window.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {scale_factor:scale});
     window.set_size(slint::PhysicalSize::new(w,h));
     let mut pixels=vec![Rgb8Pixel::default(); (w*h) as usize];
     // render() directly: no OS adapter, no show(), no event loop.
@@ -129,8 +133,11 @@ pub fn run(out:&Path,data:&Path,exe:&Path,_skin:Option<&str>)->Result<(),Box<dyn
     std::fs::create_dir_all(out)?;
     let windows=install_headless()?; let chips=Chips::new()?; let flyout=Flyout::new()?;
     update(&chips,&flyout,load_snapshot(data,exe).as_ref(),Utc::now());
-    for (index,name,w,h) in [(0,"chips.png",chips.get_content_width() as u32,30),(1,"flyout.png",640,flyout.get_content_height() as u32)] {
-        let data=pixels(&windows.borrow()[index],w,h);
+    #[cfg(windows)] let scale=crate::win::dpi::scale();
+    #[cfg(not(windows))] let scale=1.;
+    for (index,name,width,height) in [(0,"chips.png",chips.get_content_width(),30.),(1,"flyout.png",640.,flyout.get_content_height())] {
+        let slint::PhysicalSize {width:w,height:h}=physical_size(width,height,scale);
+        let data=pixels(&windows.borrow()[index],w,h,scale);
         let mut encoder=png::Encoder::new(std::fs::File::create(out.join(name))?,w,h);
         encoder.set_color(png::ColorType::Rgb); encoder.set_depth(png::BitDepth::Eight);
         encoder.write_header()?.write_image_data(&data)?;

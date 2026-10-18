@@ -6,6 +6,59 @@ use crate::{core::{app_config::AppConfig,contracts::*,models,paths::Paths},adapt
 use super::{Chips,Flyout,render_test,taskbar_math::{self as math,RectI}};
 
 enum Work { Start, Config(AppConfig), Autostart(AppConfig), Snapshot(Arc<Snapshot>,bool), Refresh, Stop }
+fn forward_poll(tx:&Option<mpsc::Sender<Work>>,command:Work) {
+    if let Some(tx)=tx {let _=tx.send(command);}
+}
+// Consume a whole pending batch before polling, like C#'s single wakePoll signal.
+fn merge_poll_commands(commands:impl Iterator<Item=Work>,config:&mut AppConfig,due:&mut Instant)->bool {
+    for command in commands {
+        match command {
+            Work::Config(c)=>{if c.poll_interval_secs!=config.poll_interval_secs {*due=Instant::now();}*config=c;},
+            Work::Refresh=>*due=Instant::now(),
+            Work::Stop=>return false,
+            _=>{},
+        }
+    }
+    true
+}
+fn interval_commands(config:&mut AppConfig,selection:&str)->[Work;2] {
+    config.poll_interval_secs=selection.parse::<i32>().ok().filter(|s|crate::core::app_config::ALLOWED_INTERVALS.contains(s)).unwrap_or(5);
+    [Work::Config(config.clone()),Work::Refresh]
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn refresh_burst_during_poll_coalesces_and_uses_latest_config() {
+        let (tx,rx)=mpsc::channel();let mut config=AppConfig::default();
+        let mut next=config.clone();next.poll_interval_secs=15;
+        tx.send(Work::Refresh).unwrap();tx.send(Work::Config(next)).unwrap();
+        for _ in 0..8 {tx.send(Work::Refresh).unwrap();}
+        let mut due=Instant::now()+Duration::from_secs(60);
+        assert!(merge_poll_commands(rx.try_iter(),&mut config,&mut due));
+        assert!(due<=Instant::now());assert_eq!(config.poll_interval_secs,15);
+        // The follow-up poll finished; no queued click should trigger another poll.
+        due=Instant::now()+Duration::from_secs(15);let scheduled=due;
+        assert!(merge_poll_commands(rx.try_iter(),&mut config,&mut due));assert_eq!(due,scheduled);
+    }
+    #[test] fn stop_preempts_a_pending_refresh() {
+        let mut config=AppConfig::default();let mut due=Instant::now();
+        assert!(!merge_poll_commands([Work::Refresh,Work::Stop].into_iter(),&mut config,&mut due));
+    }
+    #[test] fn every_interval_selection_saves_then_refreshes_even_if_unchanged() {
+        let mut config=AppConfig::default();
+        for selection in ["5","5","15","15","invalid"] {
+            let expected=if selection=="15" {15}else{5};
+            let [save,refresh]=interval_commands(&mut config,selection);
+            assert!(matches!(save,Work::Config(c) if c.poll_interval_secs==expected));
+            assert!(matches!(refresh,Work::Refresh));assert_eq!(config.poll_interval_secs,expected);
+        }
+    }
+    #[test] fn no_poll_forwarding_needs_no_receiver() {
+        for _ in 0..100 {forward_poll(&None,Work::Refresh);forward_poll(&None,Work::Config(AppConfig::default()));}
+        let (tx,rx)=mpsc::channel();forward_poll(&Some(tx),Work::Refresh);
+        assert!(matches!(rx.try_recv(),Ok(Work::Refresh)));
+    }
+}
 thread_local! { static APP:RefCell<Option<Rc<RefCell<AppController>>>>=RefCell::new(None); }
 pub struct AppController {
     config:AppConfig,current:Option<Snapshot>,chips:Chips,flyout:Flyout,tray:Option<Tray>,single:SingleInstance,
@@ -49,20 +102,20 @@ fn worker(dir:PathBuf,no_poll:bool,rx:mpsc::Receiver<Work>,results:mpsc::Sender<
     let cached=store.load();
     config.autostart=win::registry::apply(config.autostart);save_config(&dir,&config);
     let _=ready.send((config.clone(),cached));
-    let (poll_tx,poll_rx)=mpsc::channel();let mut poll_rx=Some(poll_rx);
+    let (poll_tx,mut poll_rx)=if no_poll {(None,None)}else{let (tx,rx)=mpsc::channel();(Some(tx),Some(rx))};
     let alert_store=FileAlertStore::new(dir.join("alert-state.json"));let mut alerts=alert_store.load();
     // Persistence stays responsive while a provider is taking its full 25-second timeout.
     while let Ok(command)=rx.recv() {
         match command {
             Work::Start=>{if !no_poll {if let Some(rx)=poll_rx.take(){let dir=dir.clone();let config=config.clone();let results=results.clone();std::thread::Builder::new().name("usage-monitor-poll".into()).spawn(move||poll_loop(dir,config,rx,results)).ok();}}},
-            Work::Config(c)=>{let actual_autostart=config.autostart;config=c;config.autostart=actual_autostart;save_config(&dir,&config);let _=poll_tx.send(Work::Config(config.clone()));},
-            Work::Autostart(c)=>{config=c;config.autostart=win::registry::apply(config.autostart);save_config(&dir,&config);let actual=config.autostart;post(move||with_app(|a|a.config.autostart=actual));let _=poll_tx.send(Work::Config(config.clone()));},
-            Work::Refresh=>{let _=poll_tx.send(Work::Refresh);},
+            Work::Config(c)=>{let actual_autostart=config.autostart;config=c;config.autostart=actual_autostart;save_config(&dir,&config);forward_poll(&poll_tx,Work::Config(config.clone()));},
+            Work::Autostart(c)=>{config=c;config.autostart=win::registry::apply(config.autostart);save_config(&dir,&config);let actual=config.autostart;post(move||with_app(|a|a.config.autostart=actual));forward_poll(&poll_tx,Work::Config(config.clone()));},
+            Work::Refresh=>forward_poll(&poll_tx,Work::Refresh),
             Work::Snapshot(snapshot,polled)=>{
                 let toasts=alert_engine::evaluate(&snapshot,&mut alerts,config.notify_on_limit_reached,Utc::now());let _=alert_store.save(&alerts);
                 post(move||with_app(|a|{if polled{a.current=Some((*snapshot).clone());a.render();}if let Some(t)=&a.tray{for toast in toasts{t.balloon(&toast.title,&toast.body);}}}));
             },
-            Work::Stop=>{let _=poll_tx.send(Work::Stop);break;},
+            Work::Stop=>{forward_poll(&poll_tx,Work::Stop);break;},
         }
     }
 }
@@ -73,6 +126,7 @@ fn poll_loop(dir:PathBuf,mut config:AppConfig,rx:mpsc::Receiver<Work>,results:mp
     let paths=Paths::from_process_env();let http=Arc::new(RealHttp::new());let credentials=Arc::new(WinCredReader::new());
     let mut due=Instant::now();let mut failures=std::collections::HashMap::new();
     loop {
+        if !merge_poll_commands(rx.try_iter(),&mut config,&mut due){break;}
         if Instant::now()>=due {
             let ctx=AdapterContext{paths:paths.clone(),http:http.clone(),credentials:credentials.clone(),config:config.clone(),utc_now:Arc::new(Utc::now)};
             let snapshot=engine.poll_once(&ctx,config.poll_interval_secs);log.append(&snapshot,Utc::now());
@@ -84,14 +138,10 @@ fn poll_loop(dir:PathBuf,mut config:AppConfig,rx:mpsc::Receiver<Work>,results:mp
             }
             if results.send(Work::Snapshot(snapshot,true)).is_err(){break;}
             due=Instant::now()+Duration::from_secs(config.poll_interval_secs as u64);
+            continue;
         }
-        let command=match rx.recv_timeout(due.saturating_duration_since(Instant::now())){Ok(c)=>Some(c),Err(mpsc::RecvTimeoutError::Timeout)=>continue,Err(_)=>None};
-        match command {
-            Some(Work::Config(c))=>{let interval_changed=c.poll_interval_secs!=config.poll_interval_secs;config=c;if interval_changed {due=Instant::now();}},
-            Some(Work::Refresh)=>due=Instant::now(),
-            Some(Work::Stop)|None=>break,
-            _=>{},
-        }
+        let command=match rx.recv_timeout(due.saturating_duration_since(Instant::now())){Ok(c)=>c,Err(mpsc::RecvTimeoutError::Timeout)=>continue,Err(_)=>break};
+        if !merge_poll_commands(std::iter::once(command).chain(rx.try_iter()),&mut config,&mut due){break;}
     }
 }
 pub fn run(dir:PathBuf,no_poll:bool,single:SingleInstance)->Result<(),Box<dyn std::error::Error>> {
@@ -222,7 +272,7 @@ impl AppController {
             "display"=>self.last_geometry=None,
             _=>{
                 if let Some(s)=action.strip_prefix("skin:"){self.config.skin=super::skins::normalize_skin(Some(s)).into();self.persist();}
-                if let Some(s)=action.strip_prefix("interval:"){self.config.poll_interval_secs=s.parse::<i32>().ok().filter(|s|crate::core::app_config::ALLOWED_INTERVALS.contains(s)).unwrap_or(5);self.render();self.persist();}
+                if let Some(s)=action.strip_prefix("interval:"){for command in interval_commands(&mut self.config,s){let _=self.worker.send(command);}self.render();}
                 if let Some(id)=action.strip_prefix("usage:"){let url=match id{"claude"=>"https://claude.ai/settings/usage","codex"=>"https://chatgpt.com/codex/settings/usage","gemini"=>"https://antigravity.google","grok"=>"https://grok.com",_=>return};let url=url.to_string();std::thread::spawn(move||unsafe{windows_sys::Win32::UI::Shell::ShellExecuteW(std::ptr::null_mut(),win::wide("open").as_ptr(),win::wide(&url).as_ptr(),std::ptr::null(),std::ptr::null(),1);});}
             }
         }

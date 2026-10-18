@@ -40,5 +40,22 @@ fn p(id:&str,state:&str,ws:&[(&str,f64)])->ProviderSnapshot{let mut p=ProviderSn
     // One isolated software platform on this test thread; no native windows or real data paths.
     let windows=super::render_test::install_headless().unwrap();
     let mut s=Snapshot::new(Utc::now());s.providers=vec![p("claude",state::OK,&[(kind::FIVE_HOUR,10.),(kind::WEEKLY,40.)]),p("codex",state::OK,&[(kind::FIVE_HOUR,85.),(kind::WEEKLY,40.)]),p("gemini",state::OK,&[]),p("grok",state::OK,&[(kind::FIVE_HOUR,100.),(kind::WEEKLY,40.)])];
-    for (i,id) in SKIN_IDS.iter().enumerate(){assert_eq!(super::skins::component_skin(Some(id)),"classic");let c=super::Chips::new().unwrap();let f=super::Flyout::new().unwrap();super::render_test::update(&c,&f,Some(&s),Utc::now());for (index,w,h) in [(i*2,c.get_content_width() as u32,30),(i*2+1,640,f.get_content_height() as u32)]{assert!(w>0&&h>0);let pixels=super::render_test::pixels(&windows.borrow()[index],w,h);assert_eq!(pixels.len(),(w*h*3) as usize);assert!(pixels.chunks_exact(3).any(|p|p[0]>150));}}
+    for (i,id) in SKIN_IDS.iter().enumerate(){assert_eq!(super::skins::component_skin(Some(id)),"classic");let c=super::Chips::new().unwrap();let f=super::Flyout::new().unwrap();super::render_test::update(&c,&f,Some(&s),Utc::now());for (index,width,height) in [(i*2,c.get_content_width(),30.),(i*2+1,640.,f.get_content_height())]{
+        for scale in [1.,1.5,2.] {
+            let slint::PhysicalSize {width:w,height:h}=super::render_test::physical_size(width,height,scale);
+            let window=&windows.borrow()[index];
+            let pixels=super::render_test::pixels(window,w,h,scale);
+            assert_eq!(window.scale_factor(),scale);
+            assert_eq!(pixels.len(),(w*h*3) as usize);assert!(pixels.chunks_exact(3).any(|p|p[0]>150));
+            // A card/chip near the right edge must move with the design scale, not clip.
+            let (x,y)=if index%2==0 {(width-8.,15.)}else{(620.,60.)};
+            let offset=(((y*scale) as u32*w+(x*scale) as u32)*3) as usize;
+            assert_ne!(&pixels[offset..offset+3],&[17,24,39]);
+        }
+    }}
+}
+#[test] fn test_render_size_scales_and_rounds_like_theme() {
+    for (scale,w,h) in [(1.,640,263),(1.5,960,395),(2.,1280,526)] {
+        assert_eq!(super::render_test::physical_size(640.,263.,scale),slint::PhysicalSize::new(w,h));
+    }
 }

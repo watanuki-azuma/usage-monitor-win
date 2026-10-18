@@ -100,3 +100,17 @@ merged and reviewed.
 - Final release: `APP: target\release\UsageMonitor.exe (9,307,136 bytes)` (8.88 MiB).
   Final classic render-test: exit 0 in 434 ms; 294x30 chips, 640x262 flyout, both inspected after build.
   `--render-test=... --skin=terminal --no-poll --data-dir=...` also exits 0 with classic fallback.
+
+## R4 (2026-10-18)
+
+- Windows integration + classic skin + `--render-test` (Codex Sol high; review Sol xhigh: 5 findings,
+  all fixed by the worker; details in `notes-R4.md`). `build.ps1` (outside the Codex sandbox, which denies
+  `ReplaceFileW`): RESULT 139 passed, 0 failed; APP 9,311,232 bytes.
+- Render-test classic: exit 0 in ~0.3 s, no window; matches the C# render (layout, colours, texts); fonts,
+  antialiasing and dash phase differ slightly. Brand marks are letters, as in C# `Theme.Initial()`.
+- Measured on this machine (release exe before the review fixes, `--no-poll`, copy of the C# data dir,
+  chips shown, flyout closed): working set 25.4 MB, private 4.7 MB, 9 threads, CPU 0 ms over 30 s.
+  Chips placed at the saved undocked position (118,1098), same as the C# config.
+- Single instance: launching the Rust exe while the C# app runs exits in 150 ms (shared mutex/event).
+- Not yet checked by hand: tray menu items, docking on the vertical taskbar, flyout focus/Esc, toasts,
+  Explorer restart, autostart (R6 checklist).
