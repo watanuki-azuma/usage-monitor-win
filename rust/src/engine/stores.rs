@@ -12,6 +12,12 @@ use crate::core::snapshot_json;
 
 use super::alert_engine;
 
+/// UI config persistence uses the same complete-temp-file replacement as the engine stores.
+/// Call on a worker thread, like snapshot/alert saves.
+pub fn save_config(path: impl AsRef<Path>, config: &crate::core::app_config::AppConfig) -> io::Result<()> {
+    atomic_file::write(path.as_ref(), &config.to_json())
+}
+
 pub struct FileSnapshotStore {
     path: PathBuf,
 }

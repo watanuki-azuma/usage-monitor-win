@@ -1,0 +1,31 @@
+// Shared skin contract. Skin components expose these models and the same shared-action callbacks.
+export struct ChipData {
+    id: string, text: string, initial: string, accent: color,
+    ink: color, outline: color, stale: bool, px: float, pw: float, dash-path: string,
+}
+export struct LineData {
+    label: string, pct: string, eta: string, text: string,
+    fill: float, alert: bool, kind: int, py: float, pct-width: float,
+}
+export struct CardData {
+    id: string, name: string, plan: string, initial: string, accent: color,
+    lines: [LineData], py: float, ph: float, px: float, label-width: float, eta-width: float,
+}
+export component SkinWindow inherits Window {
+    in property <[ChipData]> shared-chips;
+    in property <[CardData]> shared-cards;
+    in property <float> shared-content-width: 640;
+    in property <float> shared-content-height: 120;
+    in property <bool> shared-docked;
+    in property <bool> shared-pinned;
+    in property <int> shared-interval: 5;
+    in-out property <string> shared-render-key;
+    callback shared-action(string);
+    callback shared-drag(float, float, int);
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    default-font-size: 11px;
+    width: shared-content-width * 1px;
+    height: shared-content-height * 1px;
+}
