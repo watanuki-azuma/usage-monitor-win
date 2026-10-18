@@ -377,6 +377,11 @@ fn poll_loop(
         }
     }
 }
+/// Before the first show there is no HWND yet; giving Slint the position makes the window appear
+/// in place instead of at the default spot and jumping there 50 ms later.
+fn preset_position(window: &slint::Window, p: RectI) {
+    window.set_position(slint::PhysicalPosition::new(p.x, p.y));
+}
 pub fn run(
     dir: PathBuf,
     no_poll: bool,
@@ -390,6 +395,14 @@ pub fn run(
         .name("usage-monitor-worker".into())
         .spawn(move || worker(dir, no_poll, rx, results, ready))?;
     let (config, current) = initial.recv()?;
+    // Created without a taskbar button, so the windows never need a hide/show to drop one.
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .with_winit_window_attributes_hook(|attributes| {
+            use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+            attributes.with_skip_taskbar(true)
+        })
+        .select()?;
     let chips = Chips::new()?;
     let flyout = Flyout::new()?;
     let app = Rc::new(RefCell::new(AppController {
@@ -573,7 +586,9 @@ impl AppController {
             p
         };
         let cr = (super::skins::chips_radius(Some(&self.config.skin)) * s).round() as i32;
-        if taskbar::rect(self.chips_hwnd) != Some(self.chips_rect) {
+        if self.chips_hwnd.is_null() {
+            preset_position(self.chips.window(), self.chips_rect);
+        } else if taskbar::rect(self.chips_hwnd) != Some(self.chips_rect) {
             taskbar::move_to(self.chips_hwnd, self.chips_rect);
             window_style::round(self.chips_hwnd, w, h, cr);
         }
@@ -612,7 +627,9 @@ impl AppController {
         self.move_flyout(p, s);
     }
     fn move_flyout(&self, p: RectI, scale: f32) {
-        if taskbar::rect(self.flyout_hwnd) != Some(p) {
+        if self.flyout_hwnd.is_null() {
+            preset_position(self.flyout.window(), p);
+        } else if taskbar::rect(self.flyout_hwnd) != Some(p) {
             taskbar::move_to(self.flyout_hwnd, p);
             let fr = (super::skins::flyout_radius(Some(&self.config.skin)) * scale).round() as i32;
             window_style::round(self.flyout_hwnd, p.w, p.h, fr);
@@ -620,9 +637,18 @@ impl AppController {
     }
     fn show(&mut self) {
         self.render();
+        if self.flyout_hwnd.is_null() {
+            self.place_flyout();
+        }
         let _ = self.flyout.show();
         self.flyout_shown = Instant::now();
-        self.flyout_hwnd = std::ptr::null_mut();
+        // Slint keeps the HWND across hide/show; the styles survive because the subclass filters
+        // winit's style rewrites, so only focus is needed here.
+        if !self.flyout_hwnd.is_null() {
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(self.flyout_hwnd);
+            }
+        }
         self.begin_setup();
     }
     fn tick(&mut self) {
@@ -722,7 +748,6 @@ impl AppController {
                 if self.config.chips_hidden {
                     let _ = self.chips.hide();
                 } else {
-                    self.chips_hwnd = std::ptr::null_mut();
                     let _ = self.chips.show();
                     self.begin_setup();
                 }

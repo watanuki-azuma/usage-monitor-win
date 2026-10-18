@@ -17,6 +17,18 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
         // (opening the tray menu, showing the flyout); lParam -1 keeps the activation bookkeeping
         // but skips that repaint.
         WM_NCACTIVATE => CallWindowProcW(old, hwnd, msg, wp, -1),
+        // winit rewrites both styles on every show/hide (adding the caption and dropping
+        // WS_EX_TOOLWINDOW); keep ours instead of re-applying them with a hide/show.
+        WM_STYLECHANGING => {
+            let change = &mut *(lp as *mut STYLESTRUCT);
+            let chips = GetPropW(hwnd, wide(IS_FLYOUT).as_ptr()).is_null();
+            if wp as i32 == GWL_STYLE {
+                change.styleNew = popup_style(change.styleNew);
+            } else if wp as i32 == GWL_EXSTYLE {
+                change.styleNew = tool_ex_style(change.styleNew, chips);
+            }
+            CallWindowProcW(old, hwnd, msg, wp, lp)
+        }
         // Same for title/icon changes (Slint sets the title on every property update): run them
         // with WS_VISIBLE cleared so nothing is painted, like Chromium's redraw lock.
         WM_SETTEXT | WM_SETICON => {
@@ -37,12 +49,25 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
 pub fn find(title: &str) -> HWND {
     unsafe { FindWindowW(std::ptr::null(), wide(title).as_ptr()) }
 }
+fn popup_style(style: u32) -> u32 {
+    (style & !(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX))
+        | WS_POPUP
+}
+fn tool_ex_style(ex: u32, chips: bool) -> u32 {
+    let ex = (ex | WS_EX_TOOLWINDOW | WS_EX_TOPMOST) & !WS_EX_APPWINDOW;
+    if chips {
+        ex | WS_EX_NOACTIVATE
+    } else {
+        ex & !WS_EX_NOACTIVATE
+    }
+}
+/// Subclasses the window once and applies the tool-window styles in place. The window is created
+/// without a taskbar button (winit `skip_taskbar`), so no hide/show is needed and nothing flickers.
 pub fn tool(hwnd: HWND, chips: bool) {
     unsafe {
         if hwnd.is_null() {
             return;
         }
-        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         if GetPropW(hwnd, wide(ORIGINAL_PROC).as_ptr()).is_null() {
             if !chips {
                 SetPropW(hwnd, wide(IS_FLYOUT).as_ptr(), 1 as _);
@@ -50,40 +75,22 @@ pub fn tool(hwnd: HWND, chips: bool) {
             let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as *const () as isize);
             SetPropW(hwnd, wide(ORIGINAL_PROC).as_ptr(), old as _);
         }
-        ShowWindow(hwnd, SW_HIDE);
         frameless(hwnd);
-        let mut ex = (ex | WS_EX_TOOLWINDOW | WS_EX_TOPMOST) & !WS_EX_APPWINDOW;
-        if chips {
-            ex |= WS_EX_NOACTIVATE;
-        } else {
-            ex &= !WS_EX_NOACTIVATE;
-        }
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
-        ShowWindow(hwnd, if chips { SW_SHOWNOACTIVATE } else { SW_SHOW });
-        repaint_all(hwnd);
-    }
-}
-/// The software renderer only redraws what it knows changed, so after the hide/show above the
-/// window stayed empty. A 1 px size change and back makes Slint repaint the whole window; the two
-/// steps run from timers so Slint sees each size (both in one pass cancel out).
-fn repaint_all(hwnd: HWND) {
-    fn resize(hwnd: HWND, w: i32, h: i32) {
-        unsafe {
-            if IsWindow(hwnd) != 0 {
-                let flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE;
-                SetWindowPos(hwnd, std::ptr::null_mut(), 0, 0, w, h, flags);
-            }
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let next = tool_ex_style(ex, chips);
+        if next != ex {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next as isize);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
         }
     }
-    let mut r = unsafe { std::mem::zeroed::<windows_sys::Win32::Foundation::RECT>() };
-    if unsafe { GetWindowRect(hwnd, &mut r) } == 0 {
-        return;
-    }
-    let (w, h) = (r.right - r.left, r.bottom - r.top);
-    let id = hwnd as isize;
-    let step = std::time::Duration::from_millis(40);
-    slint::Timer::single_shot(step, move || resize(id as HWND, w, h + 1));
-    slint::Timer::single_shot(step * 2, move || resize(id as HWND, w, h));
 }
 /// Makes the window a plain popup without a caption. winit keeps `WS_CAPTION` on undecorated
 /// windows and hides it by answering `WM_NCCALCSIZE`; when that does not happen the windows showed
@@ -95,9 +102,7 @@ pub fn frameless(hwnd: HWND) {
             return;
         }
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-        let next = (style
-            & !(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX))
-            | WS_POPUP;
+        let next = popup_style(style);
         if next != style {
             SetWindowLongPtrW(hwnd, GWL_STYLE, next as isize);
             SetWindowPos(
