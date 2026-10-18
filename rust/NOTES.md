@@ -45,13 +45,11 @@
 ## Handoff (2026-10-18, paused for quota)
 
 State of the `slint` branch: R0, R1 (core, 27 tests), R3 (engine, 27 tests incl. 2 added after review)
-merged and reviewed. `build.ps1`: RESULT 54 passed, 0 failed.
+merged and reviewed.
 
-- R2 (adapters, 66 tests, 93 total with core) is done by the worker but **not merged**: branch
-  `slint-r2-wip` (based on R1, without R3). Its Codex Sol xhigh review result is in `rust/notes-R2.md`
-  on that branch once recorded; fix the confirmed findings, then merge into `slint`
-  (no file overlap with R3 except `core/json_out.rs` additions; R3 changed `core/contracts.rs`
-  `AlertState.fired` to `FiredMap`).
+- R2 (adapters, 69 tests) merged on 2026-10-18 after the 4 Sol xhigh findings were confirmed and fixed
+  (ReplaceFileW, Windows static proxy, UTF-16/32 BOMs, F2 rounding; details in `notes-R2.md`).
+  `build.ps1`: RESULT 123 passed, 0 failed; APP 8,157,696 bytes (still the placeholder window).
 - Next: R4 (windows integration + classic skin + render-test). Routing plan: tricky-impl -> Codex Sol
   high (its workspace-write sandbox can run `build.ps1`, checked on 2026-10-18), review Sol xhigh.
 - Worker notes per milestone: `notes-R3.md` (and `notes-R2.md` on the R2 branch).
